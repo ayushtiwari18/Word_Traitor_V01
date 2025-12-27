@@ -1,9 +1,25 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Settings, HelpCircle, Users, PlusCircle } from "lucide-react";
+import {
+  Settings,
+  HelpCircle,
+  Users,
+  PlusCircle,
+  KeyRound,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabaseClient"; // ensure supabase client is configured
+
+// Generate a random 6-letter room code
+const generateRoomCode = () => {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  return Array.from(
+    { length: 6 },
+    () => chars[Math.floor(Math.random() * chars.length)]
+  ).join("");
+};
 
 const ParticleBackground = () => (
   <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -21,12 +37,108 @@ const ParticleBackground = () => (
 
 const Index = () => {
   const [playerName, setPlayerName] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [joining, setJoining] = useState(false);
   const navigate = useNavigate();
 
-  const handleNavigation = (path) => {
-    if (!playerName.trim())
-      return alert("Please enter your name before continuing.");
-    navigate(path, { state: { playerName } });
+  // Helper to get or create profile
+  const getOrCreateProfile = async (username) => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .upsert({ username }, { onConflict: "username" })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  };
+
+  // Create Room
+  const handleCreateRoom = async () => {
+    if (!playerName.trim()) return alert("Please enter your name first.");
+    try {
+      const roomCode = generateRoomCode();
+
+      // 1️⃣ Create room
+      const { data: room, error: roomError } = await supabase
+        .from("game_rooms")
+        .insert({
+          room_code: roomCode,
+          status: "waiting",
+        })
+        .select()
+        .single();
+
+      if (roomError) throw roomError;
+
+      // 2️⃣ Create profile
+      const profile = await getOrCreateProfile(playerName);
+
+      // 3️⃣ Add participant
+      const { error: participantError } = await supabase
+        .from("room_participants")
+        .insert({
+          room_id: room.id,
+          user_id: profile.id,
+          role: "civilian",
+          is_alive: true,
+        });
+
+      if (participantError) throw participantError;
+
+      // ✅ Redirect to lobby
+      navigate(`/lobby/${roomCode}`, {
+        state: { playerName, isHost: true, roomCode },
+      });
+    } catch (err) {
+      console.error("Error creating room:", err);
+      alert("Failed to create room. Check console for details.");
+    }
+  };
+
+  // Join Room
+  const handleJoinRoom = async () => {
+    if (!playerName.trim()) return alert("Enter your name first.");
+    if (!joinCode.trim()) return alert("Enter a valid room code.");
+
+    const code = joinCode.trim().toUpperCase();
+
+    try {
+      const { data: room, error: roomError } = await supabase
+        .from("game_rooms")
+        .select("id, status")
+        .eq("room_code", code)
+        .single();
+
+      if (roomError || !room) {
+        alert("Room not found or already started.");
+        return;
+      }
+
+      // Create / get profile
+      const profile = await getOrCreateProfile(playerName);
+
+      // Add participant if not already
+      const { error: participantError } = await supabase
+        .from("room_participants")
+        .insert({
+          room_id: room.id,
+          user_id: profile.id,
+          role: "civilian",
+          is_alive: true,
+        });
+
+      if (participantError && participantError.code !== "23505")
+        throw participantError;
+
+      // ✅ Redirect to lobby
+      navigate(`/lobby/${code}`, {
+        state: { playerName, isHost: false, roomCode: code },
+      });
+    } catch (err) {
+      console.error("Error joining room:", err);
+      alert("Failed to join room. Check console for details.");
+    }
   };
 
   return (
@@ -58,7 +170,7 @@ const Index = () => {
         </Link>
       </div>
 
-      {/* Main Content */}
+      {/* Title */}
       <div className="flex flex-col items-center text-center z-10 max-w-xl">
         <h1 className="text-6xl sm:text-7xl md:text-8xl font-heading font-extrabold tracking-tight animate-fade-in-up">
           <span className="text-primary text-glow-cyan">Word</span>
@@ -72,7 +184,7 @@ const Index = () => {
           One word apart. One traitor among you.
         </p>
 
-        {/* Name Input */}
+        {/* Player name input */}
         <div
           className="flex flex-col sm:flex-row gap-3 w-full justify-center items-center animate-fade-in-up"
           style={{ animationDelay: "0.4s" }}
@@ -85,13 +197,14 @@ const Index = () => {
           />
         </div>
 
-        {/* Room Options */}
+        {/* Room actions */}
         <div
           className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-12 animate-fade-in-up w-full max-w-2xl"
           style={{ animationDelay: "0.6s" }}
         >
+          {/* Create Room */}
           <button
-            onClick={() => handleNavigation("/create")}
+            onClick={handleCreateRoom}
             className={cn(
               "group relative p-8 rounded-2xl border-2 bg-card/40 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all duration-300 backdrop-blur-md overflow-hidden"
             )}
@@ -103,13 +216,14 @@ const Index = () => {
                 Create Room
               </h3>
               <p className="text-sm text-muted-foreground max-w-[200px]">
-                Start a new circle and invite friends to play.
+                Start a new circle and invite friends.
               </p>
             </div>
           </button>
 
+          {/* Join Room */}
           <button
-            onClick={() => handleNavigation("/join")}
+            onClick={() => setJoining(true)}
             className={cn(
               "group relative p-8 rounded-2xl border-2 bg-card/40 border-secondary/30 hover:border-secondary hover:bg-secondary/10 transition-all duration-300 backdrop-blur-md overflow-hidden"
             )}
@@ -126,9 +240,35 @@ const Index = () => {
             </div>
           </button>
         </div>
+
+        {/* Join Room Modal */}
+        {joining && (
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in-up">
+            <div className="p-8 bg-card/70 border border-border/50 rounded-2xl shadow-lg max-w-sm w-full text-center">
+              <h3 className="font-heading text-xl mb-4 flex items-center justify-center gap-2">
+                <KeyRound className="w-5 h-5 text-primary" /> Enter Room Code
+              </h3>
+              <Input
+                placeholder="e.g. A1B2C3"
+                value={joinCode}
+                onChange={(e) => setJoinCode(e.target.value)}
+                className="mb-4 text-center uppercase"
+                maxLength={6}
+              />
+              <div className="flex gap-3 justify-center">
+                <Button variant="neonCyan" onClick={handleJoinRoom}>
+                  Join
+                </Button>
+                <Button variant="ghost" onClick={() => setJoining(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Footer gradient */}
+      {/* Footer */}
       <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background to-transparent" />
     </section>
   );
