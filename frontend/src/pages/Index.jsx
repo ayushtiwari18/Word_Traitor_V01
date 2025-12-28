@@ -1,11 +1,12 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useState, useEffect, useRef } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Settings,
   HelpCircle,
   Users,
   PlusCircle,
   KeyRound,
+  Play,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,11 @@ const generateRoomCode = () => {
     { length: 6 },
     () => chars[Math.floor(Math.random() * chars.length)]
   ).join("");
+};
+// Generate random player name
+const generateRandomPlayerName = () => {
+  const randomNumber = Math.floor(Math.random() * 9000) + 1000; // 1000-9999
+  return `Player${randomNumber}`;
 };
 
 const ParticleBackground = () => (
@@ -36,16 +42,133 @@ const ParticleBackground = () => (
 );
 
 const Index = () => {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [playerName, setPlayerName] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [joining, setJoining] = useState(false);
-  const navigate = useNavigate();
+  const [autoJoining, setAutoJoining] = useState(false);
+  const [showNameModal, setShowNameModal] = useState(false);
+  const [autoJoinRoomCode, setAutoJoinRoomCode] = useState("");
+
+  // Auto-join functionality when URL has room parameter
+  const hasAutoJoined = useRef(false);
+
+  useEffect(() => {
+    const roomFromUrl = searchParams.get("room");
+
+    if (roomFromUrl && !hasAutoJoined.current) {
+      hasAutoJoined.current = true;
+      setAutoJoinRoomCode(roomFromUrl);
+      setShowNameModal(true);
+    }
+  }, [searchParams]);
+
+  const autoJoinRoom = async (code, customName) => {
+    // Prevent duplicate calls
+    if (autoJoining) return;
+
+    try {
+      setAutoJoining(true);
+      const upperCode = code.toUpperCase();
+
+      // Check if room exists
+      const { data: roomData, error: roomErr } = await supabase
+        .from("game_rooms")
+        .select("id, room_code, host_id, status")
+        .eq("room_code", upperCode)
+        .single();
+
+      if (roomErr || !roomData) {
+        alert("Room not found or has ended.");
+        setAutoJoining(false);
+        setShowNameModal(false);
+        return;
+      }
+
+      if (roomData.status !== "waiting") {
+        alert("This game has already started.");
+        setAutoJoining(false);
+        setShowNameModal(false);
+        return;
+      }
+
+      // Use custom name or generate random
+      const playerNameToUse =
+        customName && customName.trim()
+          ? customName.trim()
+          : generateRandomPlayerName();
+
+      // Create profile
+      const { data: profile, error: profileErr } = await supabase
+        .from("profiles")
+        .insert({ username: playerNameToUse })
+        .select()
+        .single();
+
+      if (profileErr) {
+        console.error("Error creating profile:", profileErr);
+        alert("Failed to join room. Please try again.");
+        setAutoJoining(false);
+        setShowNameModal(false);
+        return;
+      }
+
+      // Add to room
+      const { error: joinErr } = await supabase
+        .from("room_participants")
+        .insert({
+          room_id: roomData.id,
+          user_id: profile.id,
+        });
+
+      if (joinErr) {
+        console.error("Error joining room:", joinErr);
+        alert("Failed to join room. Please try again.");
+        setAutoJoining(false);
+        setShowNameModal(false);
+        return;
+      }
+
+      // Store profile ID in localStorage
+      localStorage.setItem(`profile_id_${upperCode}`, profile.id);
+
+      // Navigate to lobby
+      navigate(`/lobby/${upperCode}`, {
+        state: {
+          playerName: playerNameToUse,
+          isHost: false,
+          profileId: profile.id,
+        },
+      });
+    } catch (error) {
+      console.error("Auto-join error:", error);
+      alert("An error occurred while joining the room.");
+      setAutoJoining(false);
+      setShowNameModal(false);
+    }
+  };
+  const handleNameModalSubmit = () => {
+    if (!playerName.trim()) {
+      // Use random name if empty
+      autoJoinRoom(autoJoinRoomCode, generateRandomPlayerName());
+    } else {
+      autoJoinRoom(autoJoinRoomCode, playerName);
+    }
+    setShowNameModal(false);
+  };
+
+  const handleSkipName = () => {
+    autoJoinRoom(autoJoinRoomCode, generateRandomPlayerName());
+    setShowNameModal(false);
+  };
 
   // Helper to get or create profile
   const getOrCreateProfile = async (username) => {
+    // Simply insert a new profile each time (allows duplicate usernames)
     const { data, error } = await supabase
       .from("profiles")
-      .upsert({ username }, { onConflict: "username" })
+      .insert({ username })
       .select()
       .single();
 
@@ -140,13 +263,120 @@ const Index = () => {
 
       // ✅ Redirect to lobby
       navigate(`/lobby/${code}`, {
-        state: { playerName, isHost: false, roomCode: code, profileId: profile.id },
+        state: {
+          playerName,
+          isHost: false,
+          roomCode: code,
+          profileId: profile.id,
+        },
       });
     } catch (err) {
       console.error("Error joining room:", err);
       alert("Failed to join room. Check console for details.");
     }
   };
+  // Name modal for shareable link
+  if (showNameModal) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 text-white relative overflow-hidden">
+        {/* Background effect */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-cyan-900/20 via-transparent to-transparent" />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl"></div>
+        </div>
+
+        <div className="relative z-10 flex items-center justify-center min-h-screen p-4">
+          <div className="w-full max-w-lg">
+            {/* Modal Card */}
+            <div className="bg-slate-900/80 backdrop-blur-xl rounded-2xl p-8 border border-cyan-500/20 shadow-2xl shadow-cyan-500/10">
+              {/* Header */}
+              <div className="text-center mb-8">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-cyan-500/20 to-teal-500/20 border border-cyan-500/30 mb-4">
+                  <Users className="w-8 h-8 text-cyan-400" />
+                </div>
+                <h2 className="text-3xl font-bold mb-2 text-white">
+                  Join the Game
+                </h2>
+                <p className="text-slate-400 text-sm">
+                  Room Code:{" "}
+                  <span className="font-mono font-bold text-cyan-400">
+                    {autoJoinRoomCode?.toUpperCase()}
+                  </span>
+                </p>
+              </div>
+
+              {/* Name Input */}
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                    <KeyRound className="w-4 h-4 text-cyan-400" />
+                    Your Display Name
+                  </label>
+                  <Input
+                    placeholder="Enter your name..."
+                    value={playerName}
+                    onChange={(e) => setPlayerName(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === "Enter") handleNameModalSubmit();
+                    }}
+                    className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 h-12 text-lg"
+                    maxLength={20}
+                    autoFocus
+                  />
+                  <p className="text-xs text-slate-500">
+                    This is how other players will see you
+                  </p>
+                </div>
+
+                {/* Buttons */}
+                <div className="space-y-3">
+                  <Button
+                    onClick={handleNameModalSubmit}
+                    className="w-full bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-600 hover:to-teal-600 text-white font-semibold py-6 text-lg shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/40 transition-all border-0"
+                  >
+                    <Play className="w-5 h-5 mr-2" />
+                    {playerName.trim()
+                      ? "Join with this name"
+                      : "Join with random name"}
+                  </Button>
+
+                  <Button
+                    onClick={handleSkipName}
+                    variant="outline"
+                    className="w-full border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800/50 hover:border-cyan-500/50 font-semibold py-6 text-lg transition-all"
+                  >
+                    Skip & Use Random Name
+                  </Button>
+                </div>
+
+                {/* Info Badge */}
+                <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-800/30 rounded-lg p-3 border border-slate-700/50">
+                  <HelpCircle className="w-4 h-4 flex-shrink-0 text-cyan-400" />
+                  <span>
+                    Skip to get a random name like{" "}
+                    <span className="font-mono text-cyan-400">
+                      Player{Math.floor(Math.random() * 9000) + 1000}
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (autoJoining) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-cyan-400 mx-auto mb-4"></div>
+          <p className="text-xl text-slate-300">Joining room...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <section className="relative min-h-screen flex flex-col items-center justify-center px-4 gradient-mesh">

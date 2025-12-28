@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useLocation, useNavigate } from "react-router-dom";
-import { ArrowLeft, Copy, Check, Settings, Play, Users } from "lucide-react";
+import {
+  ArrowLeft,
+  Copy,
+  Check,
+  Settings,
+  Play,
+  Users,
+  Link2,
+} from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -16,13 +25,20 @@ const Lobby = () => {
   const { roomCode } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { playerName, isHost, profileId: stateProfileId } = location.state || {};
+  const {
+    playerName,
+    isHost,
+    profileId: stateProfileId,
+  } = location.state || {};
 
   const profileId =
     stateProfileId ||
-    (roomCode ? localStorage.getItem(`profile_id_${roomCode?.toUpperCase()}`) : null);
+    (roomCode
+      ? localStorage.getItem(`profile_id_${roomCode?.toUpperCase()}`)
+      : null);
 
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [players, setPlayers] = useState([]);
   const [room, setRoom] = useState(null);
   const [settings, setSettings] = useState({
@@ -54,7 +70,9 @@ const Lobby = () => {
     const fetchRoomData = async () => {
       const { data: roomData, error: roomErr } = await supabase
         .from("game_rooms")
-        .select("id, room_code, host_id, status, current_round, created_at, settings")
+        .select(
+          "id, room_code, host_id, status, current_round, created_at, settings"
+        )
         .eq("room_code", roomCode?.toUpperCase())
         .single();
 
@@ -93,7 +111,11 @@ const Lobby = () => {
         (payload) => {
           console.log("🔄 Participant change detected:", payload);
           // Only refetch if it's for our room
-          if (!roomId || payload.new?.room_id === roomId || payload.old?.room_id === roomId) {
+          if (
+            !roomId ||
+            payload.new?.room_id === roomId ||
+            payload.old?.room_id === roomId
+          ) {
             fetchRoomData();
           }
         }
@@ -107,8 +129,13 @@ const Lobby = () => {
         },
         (payload) => {
           console.log("🎮 Game room updated:", payload);
-          if (payload.new?.room_code === roomCode?.toUpperCase() && payload.new?.status === "playing") {
-            navigate(`/word/${roomCode}`, { state: { playerName, isHost, profileId } });
+          if (
+            payload.new?.room_code === roomCode?.toUpperCase() &&
+            payload.new?.status === "playing"
+          ) {
+            navigate(`/word/${roomCode}`, {
+              state: { playerName, isHost, profileId },
+            });
           }
         }
       )
@@ -128,6 +155,16 @@ const Lobby = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // 🔗 Copy shareable link
+  const handleCopyLink = () => {
+    const shareableLink = `${
+      window.location.origin
+    }/?room=${roomCode?.toUpperCase()}`;
+    navigator.clipboard.writeText(shareableLink);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  };
+
   // 🚀 Start Game (only host)
   const handleStartGame = async () => {
     if (!isHost || !room) return;
@@ -138,13 +175,16 @@ const Lobby = () => {
 
     try {
       // Call edge function to assign words and roles
-      const { data, error: fnError } = await supabase.functions.invoke("start-round", {
-        body: {
-          roomId: room.id,
-          settings,
-          profileId,
-        },
-      });
+      const { data, error: fnError } = await supabase.functions.invoke(
+        "start-round",
+        {
+          body: {
+            roomId: room.id,
+            settings,
+            profileId,
+          },
+        }
+      );
 
       if (fnError) {
         console.error("Error calling start-round:", fnError);
@@ -168,7 +208,9 @@ const Lobby = () => {
       }
 
       // 🔀 redirect to word reveal page (next phase)
-      navigate(`/word/${roomCode}`, { state: { playerName, isHost, profileId } });
+      navigate(`/word/${roomCode}`, {
+        state: { playerName, isHost, profileId },
+      });
     } catch (err) {
       console.error("Error starting game:", err);
       alert("Failed to start game.");
@@ -186,27 +228,50 @@ const Lobby = () => {
             </Button>
           </Link>
 
-          <div className="flex items-center gap-3">
-            <span className="text-muted-foreground font-mono text-sm">
-              Room Code:
-            </span>
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-card border border-border">
-              <span className="font-heading font-bold text-primary tracking-wider">
-                {roomCode?.toUpperCase()}
+          <div className="flex items-center gap-4">
+            {/* Room Code */}
+            <div className="flex items-center gap-3">
+              <span className="text-muted-foreground font-mono text-sm">
+                Room Code:
               </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                onClick={handleCopy}
-              >
-                {copied ? (
-                  <Check className="w-3.5 h-3.5 text-primary" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5" />
-                )}
-              </Button>
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-card border border-border">
+                <span className="font-heading font-bold text-primary tracking-wider">
+                  {roomCode?.toUpperCase()}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={handleCopy}
+                >
+                  {copied ? (
+                    <Check className="w-3.5 h-3.5 text-primary" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                </Button>
+              </div>
             </div>
+
+            {/* Shareable Link */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={handleCopyLink}
+            >
+              {linkCopied ? (
+                <>
+                  <Check className="w-4 h-4" />
+                  Link Copied!
+                </>
+              ) : (
+                <>
+                  <Link2 className="w-4 h-4" />
+                  Share Link
+                </>
+              )}
+            </Button>
           </div>
         </div>
 
@@ -331,6 +396,46 @@ const Lobby = () => {
                   )}
                 </div>
               ))}
+            </div>
+            {/* Add this NEW section after the players list */}
+            <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-6">
+              <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                <Link2 className="w-4 h-4 text-primary" />
+                Invite Players
+              </h3>
+
+              <div className="space-y-3">
+                <div className="bg-background/50 rounded-lg p-3 border border-border/40">
+                  <div className="text-xs text-muted-foreground truncate font-mono">
+                    {`${
+                      window.location.origin
+                    }/?room=${roomCode?.toUpperCase()}`}
+                  </div>
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-2"
+                  onClick={handleCopyLink}
+                >
+                  {linkCopied ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Link Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Link2 className="w-4 h-4" />
+                      Copy Invite Link
+                    </>
+                  )}
+                </Button>
+
+                <p className="text-xs text-muted-foreground text-center">
+                  Share this link with friends to join directly
+                </p>
+              </div>
             </div>
 
             {isHost && (
