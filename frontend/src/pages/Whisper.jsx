@@ -83,7 +83,7 @@ const Whisper = () => {
           table: "round_secrets",
         },
         () => fetchData()
-      ))
+      )
       .subscribe();
 
     const roomChannel = supabase

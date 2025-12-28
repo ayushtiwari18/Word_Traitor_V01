@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
-import { MessageCircle, Send, Clock, Users, ArrowRight } from "lucide-react";
+import { MessageCircle, Send, Clock, Users, Vote, CheckCircle, XCircle, Trophy, Skull } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabaseClient";
@@ -20,8 +20,14 @@ const Discussion = () => {
   const [hints, setHints] = useState([]);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
-  const [discussionTime, setDiscussionTime] = useState(120);
   const [timeLeft, setTimeLeft] = useState(120);
+  
+  const [myVote, setMyVote] = useState(null);
+  const [votes, setVotes] = useState([]);
+  const [votingComplete, setVotingComplete] = useState(false);
+  const [votedPlayer, setVotedPlayer] = useState(null);
+  const [traitorId, setTraitorId] = useState(null);
+  const [showResults, setShowResults] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -75,6 +81,18 @@ const Discussion = () => {
           setHints([]);
         }
 
+        const { data: secretsData } = await supabase
+          .from("round_secrets")
+          .select("user_id, is_traitor")
+          .eq("room_id", roomData.id)
+          .eq("round_number", roomData.current_round || 1);
+
+        const traitor = secretsData?.find(s => s.is_traitor);
+        if (traitor) {
+          setTraitorId(traitor.user_id);
+        }
+
+        await fetchVotes(roomData.id);
         fetchMessages(roomData.id);
       } catch (error) {
         console.error("Error:", error);
@@ -83,6 +101,20 @@ const Discussion = () => {
 
     fetchData();
   }, [roomCode, navigate, profileId]);
+
+  const fetchVotes = async (roomId) => {
+    const { data: votesData } = await supabase
+      .from("game_votes")
+      .select("*")
+      .eq("room_id", roomId);
+
+    setVotes(votesData || []);
+
+    const myExistingVote = votesData?.find(v => v.voter_id === profileId);
+    if (myExistingVote) {
+      setMyVote(myExistingVote.voted_user_id);
+    }
+  };
 
   const fetchMessages = async (roomId) => {
     const { data: messagesData } = await supabase
@@ -112,6 +144,34 @@ const Discussion = () => {
   };
 
   useEffect(() => {
+    if (!room || !players.length) return;
+
+    const totalPlayers = players.length;
+    const totalVotes = votes.length;
+
+    if (totalVotes >= totalPlayers && totalPlayers > 0 && !votingComplete) {
+      const voteCounts = {};
+      votes.forEach(v => {
+        voteCounts[v.voted_user_id] = (voteCounts[v.voted_user_id] || 0) + 1;
+      });
+
+      let maxVotes = 0;
+      let mostVoted = null;
+      Object.entries(voteCounts).forEach(([odId, count]) => {
+        if (count > maxVotes) {
+          maxVotes = count;
+          mostVoted = odId;
+        }
+      });
+
+      const votedPlayerData = players.find(p => p.user_id === mostVoted);
+      setVotedPlayer(votedPlayerData);
+      setVotingComplete(true);
+      setShowResults(true);
+    }
+  }, [votes, players, room, votingComplete]);
+
+  useEffect(() => {
     if (!room) return;
 
     const messagesChannel = supabase
@@ -127,38 +187,34 @@ const Discussion = () => {
       )
       .subscribe();
 
-    const roomChannel = supabase
-      .channel(`room_voting_${roomCode}`)
+    const votesChannel = supabase
+      .channel(`votes_${roomCode}`)
       .on(
         "postgres_changes",
         {
-          event: "UPDATE",
+          event: "*",
           schema: "public",
-          table: "game_rooms",
+          table: "game_votes",
         },
-        (payload) => {
-          if (payload.new?.room_code === roomCode?.toUpperCase() && payload.new?.status === "voting") {
-            navigate(`/vote/${roomCode}`, { state: { playerName, isHost, profileId } });
-          }
-        }
+        () => fetchVotes(room.id)
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(messagesChannel);
-      supabase.removeChannel(roomChannel);
+      supabase.removeChannel(votesChannel);
     };
-  }, [room, roomCode, navigate, playerName, isHost, profileId]);
+  }, [room, roomCode]);
 
   useEffect(() => {
-    if (timeLeft <= 0) return;
+    if (timeLeft <= 0 || votingComplete) return;
 
     const timer = setTimeout(() => {
       setTimeLeft(prev => prev - 1);
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [timeLeft]);
+  }, [timeLeft, votingComplete]);
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !profileId || !room) return;
@@ -172,16 +228,26 @@ const Discussion = () => {
     setNewMessage("");
   };
 
-  const handleMoveToVoting = async () => {
-    if (!isHost || !room) return;
+  const handleVote = async (votedForId) => {
+    if (!profileId || !room || myVote || votingComplete) {
+      console.log("Vote blocked:", { profileId, room: !!room, myVote, votingComplete });
+      return;
+    }
 
-    const { error } = await supabase
-      .from("game_rooms")
-      .update({ status: "voting" })
-      .eq("id", room.id);
+    console.log("Submitting vote:", { room_id: room.id, voter_id: profileId, voted_user_id: votedForId });
 
-    if (!error) {
-      navigate(`/vote/${roomCode}`, { state: { playerName, isHost, profileId } });
+    const { data, error } = await supabase.from("game_votes").insert({
+      room_id: room.id,
+      voter_id: profileId,
+      voted_user_id: votedForId,
+      round_number: room.current_round || 1,
+    }).select();
+
+    if (error) {
+      console.error("Vote error:", error);
+    } else {
+      console.log("Vote success:", data);
+      setMyVote(votedForId);
     }
   };
 
@@ -191,10 +257,82 @@ const Discussion = () => {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const getPlayerName = (userId) => {
-    const player = players.find(p => p.user_id === userId);
+  const getPlayerName = (odId) => {
+    const player = players.find(p => p.user_id === odId);
     return player?.profiles?.username || "Unknown";
   };
+
+  const getVoteCount = (playerId) => {
+    return votes.filter(v => v.voted_user_id === playerId).length;
+  };
+
+  const isTraitor = votedPlayer?.user_id === traitorId;
+
+  if (showResults && votedPlayer) {
+    return (
+      <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center">
+        <div className="container max-w-lg mx-auto px-4">
+          <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-8 shadow-xl animate-fade-in-up text-center">
+            <div className={`w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center ${
+              isTraitor ? "bg-green-500/20 border-2 border-green-500" : "bg-red-500/20 border-2 border-red-500"
+            }`}>
+              {isTraitor ? (
+                <Trophy className="w-10 h-10 text-green-500" />
+              ) : (
+                <Skull className="w-10 h-10 text-red-500" />
+              )}
+            </div>
+
+            <h1 className="text-3xl font-heading font-bold mb-2">
+              {votedPlayer.profiles?.username} was voted out!
+            </h1>
+
+            <div className={`text-xl font-bold mb-6 ${isTraitor ? "text-green-500" : "text-red-500"}`}>
+              {isTraitor ? (
+                <span className="flex items-center justify-center gap-2">
+                  <CheckCircle className="w-6 h-6" />
+                  They were the TRAITOR!
+                </span>
+              ) : (
+                <span className="flex items-center justify-center gap-2">
+                  <XCircle className="w-6 h-6" />
+                  They were INNOCENT!
+                </span>
+              )}
+            </div>
+
+            <div className="bg-background/50 rounded-xl p-4 mb-6">
+              <h3 className="text-lg font-bold mb-3">Vote Results</h3>
+              <div className="space-y-2">
+                {players.map(p => (
+                  <div key={p.user_id} className="flex items-center justify-between">
+                    <span className={p.user_id === traitorId ? "text-red-400" : ""}>
+                      {p.profiles?.username}
+                      {p.user_id === traitorId && " (Traitor)"}
+                    </span>
+                    <span className="font-mono">{getVoteCount(p.user_id)} votes</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className={`text-2xl font-heading font-bold ${isTraitor ? "text-green-500" : "text-red-500"}`}>
+              {isTraitor ? "🎉 Civilians Win! 🎉" : "😈 Traitor Wins! 😈"}
+            </div>
+
+            <Button
+              variant="neonCyan"
+              size="lg"
+              className="mt-6"
+              onClick={() => navigate("/")}
+            >
+              Back to Home
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background gradient-mesh">
@@ -202,7 +340,7 @@ const Discussion = () => {
         <div className="flex items-center justify-between mb-6 animate-fade-in-up">
           <h1 className="text-2xl font-heading font-bold flex items-center gap-2">
             <MessageCircle className="w-6 h-6 text-primary" />
-            Discussion Phase
+            Discussion & Vote
           </h1>
           <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-card/50 border border-border/40">
             <Clock className={`w-5 h-5 ${timeLeft <= 30 ? "text-red-500" : "text-primary"}`} />
@@ -235,22 +373,10 @@ const Discussion = () => {
                 ))}
               </div>
             </div>
-
-            {isHost && (
-              <Button
-                variant="neonCyan"
-                size="lg"
-                className="w-full gap-2"
-                onClick={handleMoveToVoting}
-              >
-                Proceed to Voting
-                <ArrowRight className="w-5 h-5" />
-              </Button>
-            )}
           </div>
 
-          <div className="lg:col-span-2 animate-fade-in-up">
-            <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-4 h-[500px] flex flex-col">
+          <div className="lg:col-span-2 space-y-4 animate-fade-in-up">
+            <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-4 h-[350px] flex flex-col">
               <h2 className="text-lg font-heading font-bold mb-4">
                 Discuss & Debate
               </h2>
@@ -297,6 +423,43 @@ const Discussion = () => {
                   <Send className="w-5 h-5" />
                 </Button>
               </div>
+            </div>
+
+            <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-4">
+              <h2 className="text-lg font-heading font-bold mb-4 flex items-center gap-2">
+                <Vote className="w-5 h-5 text-secondary" />
+                Vote for the Traitor
+                <span className="ml-auto text-sm font-normal text-muted-foreground">
+                  {votes.length}/{players.length} voted
+                </span>
+              </h2>
+
+              {myVote ? (
+                <div className="text-center py-4 text-muted-foreground">
+                  <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-500" />
+                  You voted for <span className="font-bold text-primary">{getPlayerName(myVote)}</span>
+                  <p className="text-sm mt-2">Waiting for others to vote...</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {players
+                    .filter(p => p.user_id !== profileId)
+                    .map(p => (
+                      <Button
+                        key={p.user_id}
+                        variant="outline"
+                        className="h-auto py-3 flex flex-col items-center gap-1 hover:bg-red-500/20 hover:border-red-500/50"
+                        onClick={() => handleVote(p.user_id)}
+                        disabled={!!myVote}
+                      >
+                        <span className="font-bold">{p.profiles?.username}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {getVoteCount(p.user_id)} votes
+                        </span>
+                      </Button>
+                    ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
