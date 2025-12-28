@@ -16,6 +16,7 @@ const Whisper = () => {
 
   const [revealed, setRevealed] = useState(false);
   const [secretWord, setSecretWord] = useState(null);
+  const [wordDescription, setWordDescription] = useState(null);
   const [loading, setLoading] = useState(true);
   const [room, setRoom] = useState(null);
   const [countdown, setCountdown] = useState(10);
@@ -52,7 +53,7 @@ const Whisper = () => {
 
         const { data: secretData, error: secretErr } = await supabase
           .from("round_secrets")
-          .select("*")
+          .select("*, word_pairs(*)")
           .eq("room_id", roomData.id)
           .eq("user_id", profileId)
           .eq("round_number", roomData.current_round || 1)
@@ -62,6 +63,12 @@ const Whisper = () => {
           console.log("No secret assigned yet, waiting...", secretErr);
         } else {
           setSecretWord(secretData);
+          if (secretData.word_pairs) {
+            const desc = secretData.is_traitor 
+              ? secretData.word_pairs.traitor_word_description 
+              : secretData.word_pairs.civilian_word_description;
+            setWordDescription(desc);
+          }
         }
 
         setLoading(false);
@@ -173,6 +180,11 @@ const Whisper = () => {
                   <span className="text-4xl font-heading font-bold text-primary">
                     {secretWord?.secret_word || "No word assigned"}
                   </span>
+                  {wordDescription && (
+                    <p className="mt-4 text-base text-muted-foreground italic">
+                      "{wordDescription}"
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="flex items-center justify-center gap-2 text-muted-foreground">
