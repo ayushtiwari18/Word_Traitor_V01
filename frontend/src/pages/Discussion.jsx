@@ -54,13 +54,31 @@ const Discussion = () => {
 
         setPlayers(participants || []);
 
-        // Get all hints
+        // Get all hints (with manual join since FK might not exist)
         const { data: hintsData } = await supabase
           .from("game_hints")
-          .select("*, profiles!game_hints_user_id_fkey(username)")
+          .select("*")
           .eq("room_id", roomData.id);
 
-        setHints(hintsData || []);
+        // Get usernames for hints manually
+        if (hintsData && hintsData.length > 0) {
+          const userIds = [...new Set(hintsData.map(h => h.user_id).filter(Boolean))];
+          const { data: profilesData } = await supabase
+            .from("profiles")
+            .select("id, username")
+            .in("id", userIds);
+          
+          const profileMap = {};
+          profilesData?.forEach(p => { profileMap[p.id] = p.username; });
+          
+          const hintsWithNames = hintsData.map(h => ({
+            ...h,
+            username: profileMap[h.user_id] || "Unknown"
+          }));
+          setHints(hintsWithNames);
+        } else {
+          setHints([]);
+        }
 
         // Get chat messages
         fetchMessages(roomData.id);
@@ -73,13 +91,30 @@ const Discussion = () => {
   }, [roomCode, navigate, profileId]);
 
   const fetchMessages = async (roomId) => {
-    const { data } = await supabase
+    const { data: messagesData } = await supabase
       .from("chat_messages")
-      .select("*, profiles!chat_messages_user_id_fkey(username)")
+      .select("*")
       .eq("room_id", roomId)
       .order("created_at", { ascending: true });
 
-    setMessages(data || []);
+    if (messagesData && messagesData.length > 0) {
+      const userIds = [...new Set(messagesData.map(m => m.user_id).filter(Boolean))];
+      const { data: profilesData } = await supabase
+        .from("profiles")
+        .select("id, username")
+        .in("id", userIds);
+      
+      const profileMap = {};
+      profilesData?.forEach(p => { profileMap[p.id] = p.username; });
+      
+      const messagesWithNames = messagesData.map(m => ({
+        ...m,
+        username: profileMap[m.user_id] || "Unknown"
+      }));
+      setMessages(messagesWithNames);
+    } else {
+      setMessages([]);
+    }
   };
 
   // Realtime subscriptions
@@ -201,7 +236,7 @@ const Discussion = () => {
                     className="p-3 rounded-xl bg-background/50 border border-border/40"
                   >
                     <div className="text-sm text-muted-foreground mb-1">
-                      {h.profiles?.username}
+                      {h.username}
                     </div>
                     <div className="text-lg font-medium text-primary">
                       "{h.hint}"
@@ -242,13 +277,13 @@ const Discussion = () => {
                     <div
                       key={msg.id || i}
                       className={`p-3 rounded-xl ${
-                        msg.user_id === currentUser?.id
+                        msg.user_id === profileId
                           ? "bg-primary/20 border border-primary/30 ml-8"
                           : "bg-muted/50 border border-border/40 mr-8"
                       }`}
                     >
                       <div className="text-xs text-muted-foreground mb-1">
-                        {msg.profiles?.username || getPlayerName(msg.user_id)}
+                        {msg.username || getPlayerName(msg.user_id)}
                       </div>
                       <div className="text-sm">{msg.message}</div>
                     </div>
