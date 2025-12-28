@@ -59,20 +59,21 @@ const Index = () => {
     try {
       const roomCode = generateRoomCode();
 
-      // 1️⃣ Create room
+      // 1️⃣ Create / get profile first (used as host_id)
+      const profile = await getOrCreateProfile(playerName);
+
+      // 2️⃣ Create room
       const { data: room, error: roomError } = await supabase
         .from("game_rooms")
         .insert({
           room_code: roomCode,
           status: "waiting",
+          host_id: profile.id,
         })
         .select()
         .single();
 
       if (roomError) throw roomError;
-
-      // 2️⃣ Create profile
-      const profile = await getOrCreateProfile(playerName);
 
       // 3️⃣ Add participant
       const { error: participantError } = await supabase
@@ -86,9 +87,12 @@ const Index = () => {
 
       if (participantError) throw participantError;
 
+      // Store profileId for host verification
+      localStorage.setItem(`profile_id_${roomCode}`, profile.id);
+
       // ✅ Redirect to lobby
       navigate(`/lobby/${roomCode}`, {
-        state: { playerName, isHost: true, roomCode },
+        state: { playerName, isHost: true, roomCode, profileId: profile.id },
       });
     } catch (err) {
       console.error("Error creating room:", err);
@@ -131,9 +135,12 @@ const Index = () => {
       if (participantError && participantError.code !== "23505")
         throw participantError;
 
+      // Store profileId for later use
+      localStorage.setItem(`profile_id_${code}`, profile.id);
+
       // ✅ Redirect to lobby
       navigate(`/lobby/${code}`, {
-        state: { playerName, isHost: false, roomCode: code },
+        state: { playerName, isHost: false, roomCode: code, profileId: profile.id },
       });
     } catch (err) {
       console.error("Error joining room:", err);

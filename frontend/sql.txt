@@ -1,0 +1,92 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.chat_messages (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  room_id uuid,
+  user_id uuid,
+  message text NOT NULL,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT chat_messages_pkey PRIMARY KEY (id),
+  CONSTRAINT chat_messages_room_id_fkey FOREIGN KEY (room_id) REFERENCES public.game_rooms(id),
+  CONSTRAINT chat_messages_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.feedback (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid,
+  message text NOT NULL,
+  rating integer CHECK (rating >= 1 AND rating <= 5),
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT feedback_pkey PRIMARY KEY (id),
+  CONSTRAINT feedback_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.game_hints (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  room_id uuid,
+  hint text NOT NULL,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT game_hints_pkey PRIMARY KEY (id),
+  CONSTRAINT game_hints_room_id_fkey FOREIGN KEY (room_id) REFERENCES public.game_rooms(id)
+);
+CREATE TABLE public.game_rooms (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  room_code text NOT NULL UNIQUE,
+  host_id uuid,
+  status text DEFAULT 'waiting'::text CHECK (status = ANY (ARRAY['waiting'::text, 'playing'::text, 'finished'::text])),
+  current_round integer DEFAULT 1,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  settings jsonb DEFAULT '{"hintTime": 30, "traitors": 1, "wordLevel": "medium", "adultWords": false, "anonymousVoting": false}'::jsonb,
+  CONSTRAINT game_rooms_pkey PRIMARY KEY (id),
+  CONSTRAINT game_rooms_host_id_fkey FOREIGN KEY (host_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.game_votes (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  room_id uuid,
+  voter_id uuid,
+  voted_user_id uuid,
+  round_number integer NOT NULL,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT game_votes_pkey PRIMARY KEY (id),
+  CONSTRAINT game_votes_room_id_fkey FOREIGN KEY (room_id) REFERENCES public.game_rooms(id),
+  CONSTRAINT game_votes_voter_id_fkey FOREIGN KEY (voter_id) REFERENCES public.profiles(id),
+  CONSTRAINT game_votes_voted_user_id_fkey FOREIGN KEY (voted_user_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.profiles (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  username text NOT NULL UNIQUE,
+  avatar_url text,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT profiles_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.room_participants (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  room_id uuid,
+  user_id uuid,
+  role text DEFAULT 'civilian'::text CHECK (role = ANY (ARRAY['traitor'::text, 'civilian'::text])),
+  is_alive boolean DEFAULT true,
+  joined_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT room_participants_pkey PRIMARY KEY (id),
+  CONSTRAINT room_participants_room_id_fkey FOREIGN KEY (room_id) REFERENCES public.game_rooms(id),
+  CONSTRAINT room_participants_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.round_secrets (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  room_id uuid,
+  round_number integer NOT NULL,
+  user_id uuid,
+  secret_word text NOT NULL,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT round_secrets_pkey PRIMARY KEY (id),
+  CONSTRAINT round_secrets_room_id_fkey FOREIGN KEY (room_id) REFERENCES public.game_rooms(id),
+  CONSTRAINT round_secrets_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+);
+CREATE TABLE public.word_pairs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  category text,
+  civilian_word text NOT NULL,
+  civilian_word_description text,
+  traitor_word text NOT NULL,
+  traitor_word_description text,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  CONSTRAINT word_pairs_pkey PRIMARY KEY (id)
+);

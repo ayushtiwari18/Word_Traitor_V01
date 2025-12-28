@@ -16,7 +16,11 @@ const Lobby = () => {
   const { roomCode } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { playerName, isHost } = location.state || {};
+  const { playerName, isHost, profileId: stateProfileId } = location.state || {};
+
+  const profileId =
+    stateProfileId ||
+    (roomCode ? localStorage.getItem(`profile_id_${roomCode?.toUpperCase()}`) : null);
 
   const [copied, setCopied] = useState(false);
   const [players, setPlayers] = useState([]);
@@ -45,10 +49,12 @@ const Lobby = () => {
 
   // 🔁 Fetch room info & participants
   useEffect(() => {
+    let roomId = null;
+
     const fetchRoomData = async () => {
       const { data: roomData, error: roomErr } = await supabase
         .from("game_rooms")
-        .select("*")
+        .select("id, room_code, host_id, status, current_round, created_at, settings")
         .eq("room_code", roomCode?.toUpperCase())
         .single();
 
@@ -59,6 +65,7 @@ const Lobby = () => {
         return;
       }
 
+      roomId = roomData.id;
       setRoom(roomData);
       if (roomData.settings) setSettings(roomData.settings);
 
@@ -73,9 +80,9 @@ const Lobby = () => {
 
     fetchRoomData();
 
-    // Realtime subscription for participant updates
-    const subscription = supabase
-      .channel(`room_${roomCode}`)
+    // Single channel for all realtime updates
+    const channel = supabase
+      .channel(`lobby_${roomCode}`)
       .on(
         "postgres_changes",
         {
@@ -83,14 +90,36 @@ const Lobby = () => {
           schema: "public",
           table: "room_participants",
         },
-        () => fetchRoomData()
+        (payload) => {
+          console.log("🔄 Participant change detected:", payload);
+          // Only refetch if it's for our room
+          if (!roomId || payload.new?.room_id === roomId || payload.old?.room_id === roomId) {
+            fetchRoomData();
+          }
+        }
       )
-      .subscribe();
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "game_rooms",
+        },
+        (payload) => {
+          console.log("🎮 Game room updated:", payload);
+          if (payload.new?.room_code === roomCode?.toUpperCase() && payload.new?.status === "playing") {
+            navigate(`/word/${roomCode}`, { state: { playerName, isHost, profileId } });
+          }
+        }
+      )
+      .subscribe((status, err) => {
+        console.log("📡 Realtime subscription status:", status, err);
+      });
 
     return () => {
-      supabase.removeChannel(subscription);
+      supabase.removeChannel(channel);
     };
-  }, [roomCode]);
+  }, [roomCode, navigate, playerName, isHost, profileId]);
 
   // 🧠 Copy room code
   const handleCopy = () => {
@@ -102,24 +131,48 @@ const Lobby = () => {
   // 🚀 Start Game (only host)
   const handleStartGame = async () => {
     if (!isHost || !room) return;
-
-    // update status to 'playing' & save final settings
-    const { error } = await supabase
-      .from("game_rooms")
-      .update({
-        status: "playing",
-        settings,
-      })
-      .eq("id", room.id);
-
-    if (error) {
-      console.error("Error starting game:", error);
-      alert("Failed to start game.");
+    if (!profileId) {
+      alert("Missing profile. Please re-join the room.");
       return;
     }
 
-    // 🔀 redirect to word reveal page (next phase)
-    navigate(`/word/${roomCode}`, { state: { playerName, isHost } });
+    try {
+      // Call edge function to assign words and roles
+      const { data, error: fnError } = await supabase.functions.invoke("start-round", {
+        body: {
+          roomId: room.id,
+          settings,
+          profileId,
+        },
+      });
+
+      if (fnError) {
+        console.error("Error calling start-round:", fnError);
+        alert("Failed to start game. Please try again.");
+        return;
+      }
+
+      console.log("🎮 Game started:", data);
+
+      // update status to 'playing' & save final settings (edge function already does this, but ensure it)
+      const { error } = await supabase
+        .from("game_rooms")
+        .update({
+          status: "playing",
+          settings,
+        })
+        .eq("id", room.id);
+
+      if (error) {
+        console.error("Error updating game status:", error);
+      }
+
+      // 🔀 redirect to word reveal page (next phase)
+      navigate(`/word/${roomCode}`, { state: { playerName, isHost, profileId } });
+    } catch (err) {
+      console.error("Error starting game:", err);
+      alert("Failed to start game.");
+    }
   };
 
   return (
