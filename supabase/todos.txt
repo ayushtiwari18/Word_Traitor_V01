@@ -1,0 +1,6 @@
+1. add a link to share room  code --
+2. make adult mode toggle work and add a column in word pair and round secerets , if it is on then provide 18+ words{we can add a bolean for it}
+3. if player join with enterung name from link add random name--
+4. if any player exits in lobby , delete his player id
+5. if host leaves make someone else hosts
+6. hosts can remove participants
