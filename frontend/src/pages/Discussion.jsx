@@ -20,10 +20,9 @@ const Discussion = () => {
   const [hints, setHints] = useState([]);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
-  const [discussionTime, setDiscussionTime] = useState(120); // 2 minutes default
+  const [discussionTime, setDiscussionTime] = useState(120);
   const [timeLeft, setTimeLeft] = useState(120);
 
-  // Initial data fetch
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -33,7 +32,6 @@ const Discussion = () => {
           return;
         }
 
-        // Get room
         const { data: roomData } = await supabase
           .from("game_rooms")
           .select("id, room_code, host_id, status, current_round, created_at, settings")
@@ -46,7 +44,6 @@ const Discussion = () => {
         }
         setRoom(roomData);
 
-        // Get participants
         const { data: participants } = await supabase
           .from("room_participants")
           .select("*, profiles!room_participants_user_id_fkey(username)")
@@ -54,13 +51,11 @@ const Discussion = () => {
 
         setPlayers(participants || []);
 
-        // Get all hints (with manual join since FK might not exist)
         const { data: hintsData } = await supabase
           .from("game_hints")
           .select("*")
           .eq("room_id", roomData.id);
 
-        // Get usernames for hints manually
         if (hintsData && hintsData.length > 0) {
           const userIds = [...new Set(hintsData.map(h => h.user_id).filter(Boolean))];
           const { data: profilesData } = await supabase
@@ -80,7 +75,6 @@ const Discussion = () => {
           setHints([]);
         }
 
-        // Get chat messages
         fetchMessages(roomData.id);
       } catch (error) {
         console.error("Error:", error);
@@ -117,7 +111,6 @@ const Discussion = () => {
     }
   };
 
-  // Realtime subscriptions
   useEffect(() => {
     if (!room) return;
 
@@ -157,7 +150,6 @@ const Discussion = () => {
     };
   }, [room, roomCode, navigate, playerName, isHost, profileId]);
 
-  // Timer
   useEffect(() => {
     if (timeLeft <= 0) return;
 
@@ -207,7 +199,6 @@ const Discussion = () => {
   return (
     <div className="min-h-screen bg-background gradient-mesh">
       <div className="container max-w-4xl mx-auto px-4 py-6">
-        {/* Header */}
         <div className="flex items-center justify-between mb-6 animate-fade-in-up">
           <h1 className="text-2xl font-heading font-bold flex items-center gap-2">
             <MessageCircle className="w-6 h-6 text-primary" />
@@ -222,7 +213,6 @@ const Discussion = () => {
         </div>
 
         <div className="grid lg:grid-cols-3 gap-6">
-          {/* Hints Panel */}
           <div className="lg:col-span-1 space-y-4 animate-fade-in-up">
             <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-4">
               <h2 className="text-lg font-heading font-bold mb-4 flex items-center gap-2">
@@ -259,14 +249,12 @@ const Discussion = () => {
             )}
           </div>
 
-          {/* Chat Panel */}
           <div className="lg:col-span-2 animate-fade-in-up">
             <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-4 h-[500px] flex flex-col">
               <h2 className="text-lg font-heading font-bold mb-4">
                 Discuss & Debate
               </h2>
 
-              {/* Messages */}
               <div className="flex-1 overflow-y-auto space-y-3 mb-4 pr-2">
                 {messages.length === 0 ? (
                   <div className="text-center text-muted-foreground py-8">
@@ -291,7 +279,6 @@ const Discussion = () => {
                 )}
               </div>
 
-              {/* Input */}
               <div className="flex gap-2">
                 <Input
                   type="text"

@@ -22,18 +22,15 @@ const Whisper = () => {
   const countdownRef = useRef(null);
   const hasNavigated = useRef(false);
 
-  // Fetch room and secret word for current user
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Check we have profileId
         if (!profileId) {
           console.error("No profileId found");
           navigate("/");
           return;
         }
 
-        // Get room
         const { data: roomData, error: roomErr } = await supabase
           .from("game_rooms")
           .select("id, room_code, host_id, status, current_round, created_at, settings")
@@ -47,14 +44,12 @@ const Whisper = () => {
         }
         setRoom(roomData);
 
-        // If already in hint_drop phase, navigate there
         if (roomData.status === "hint_drop" && !hasNavigated.current) {
           hasNavigated.current = true;
           navigate(`/hint/${roomCode}`, { state: { playerName, isHost, profileId } });
           return;
         }
 
-        // Get secret word for this user in this round
         const { data: secretData, error: secretErr } = await supabase
           .from("round_secrets")
           .select("*")
@@ -78,7 +73,6 @@ const Whisper = () => {
 
     fetchData();
 
-    // Subscribe to round_secrets updates (in case word is assigned after page load)
     const secretsChannel = supabase
       .channel(`secrets_${roomCode}`)
       .on(
@@ -89,10 +83,9 @@ const Whisper = () => {
           table: "round_secrets",
         },
         () => fetchData()
-      )
+      ))
       .subscribe();
 
-    // Subscribe to game_rooms for phase changes
     const roomChannel = supabase
       .channel(`game_phase_${roomCode}`)
       .on(
@@ -124,8 +117,7 @@ const Whisper = () => {
       countdownRef.current = setTimeout(() => setCountdown(countdown - 1), 1000);
       return () => clearTimeout(countdownRef.current);
     }
-    
-    // When countdown reaches 0, host updates status to move everyone
+
     if (revealed && countdown === 0 && isHost && room && !hasNavigated.current) {
       const moveToHintPhase = async () => {
         console.log("⏰ Countdown ended, moving to hint phase...");
@@ -203,7 +195,6 @@ const Whisper = () => {
             )}
           </div>
 
-          {/* Countdown & Next */}
           {revealed && (
             <div className="space-y-4 animate-fade-in-up">
               <p className="text-sm text-muted-foreground">
