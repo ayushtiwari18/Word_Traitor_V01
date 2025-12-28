@@ -48,12 +48,13 @@ const Lobby = () => {
     adultWords: false,
     anonymousVoting: false,
   });
+  const [currentIsHost, setCurrentIsHost] = useState(isHost || false);
 
   // 🔧 Update settings in Supabase when host changes them
   const updateGameSettings = async (newSettings) => {
     setSettings(newSettings);
 
-    if (isHost && room) {
+    if (currentIsHost && room) {
       const { error } = await supabase
         .from("game_rooms")
         .update({ settings: newSettings })
@@ -86,7 +87,11 @@ const Lobby = () => {
       currentRoomId = roomData.id;
       setRoom(roomData);
       if (roomData.settings) setSettings(roomData.settings);
-
+      if (profileId && roomData.host_id === profileId) {
+        setCurrentIsHost(true);
+      } else {
+        setCurrentIsHost(false);
+      }
       const { data: participants, error: partErr } = await supabase
         .from("room_participants")
         .select("*, profiles!room_participants_user_id_fkey(username)")
@@ -123,12 +128,13 @@ const Lobby = () => {
         },
         (payload) => {
           console.log("🎮 Game room updated:", payload);
+          fetchRoomData();
           if (
             payload.new?.room_code === roomCode?.toUpperCase() &&
             payload.new?.status === "playing"
           ) {
             navigate(`/word/${roomCode}`, {
-              state: { playerName, isHost, profileId },
+              state: { playerName, currentIsHost, profileId },
             });
           }
         }
@@ -162,7 +168,7 @@ const Lobby = () => {
 
   // 🚀 Start Game (only host)
   const handleStartGame = async () => {
-    if (!isHost || !room) return;
+    if (!currentIsHost || !room) return;
     if (!profileId) {
       alert("Missing profile. Please re-join the room.");
       return;
@@ -204,7 +210,7 @@ const Lobby = () => {
 
       // 🔀 redirect to word reveal page (next phase)
       navigate(`/word/${roomCode}`, {
-        state: { playerName, isHost, profileId },
+        state: { playerName, currentIsHost, profileId },
       });
     } catch (err) {
       console.error("Error starting game:", err);
@@ -218,9 +224,8 @@ const Lobby = () => {
       navigate("/");
       return;
     }
-
     try {
-      // Delete participant from room
+      // Delete participant from room FIRST
       const { error: deleteError } = await supabase
         .from("room_participants")
         .delete()
@@ -231,27 +236,33 @@ const Lobby = () => {
         console.error("Error leaving room:", deleteError);
       }
 
-      // If host is leaving, transfer host to another player
-      if (isHost && players.length > 1) {
-        const newHost = players.find((p) => p.user_id !== profileId);
+      // 🔥 NEW: Get FRESH participant list after deletion
+      const { data: remainingPlayers, error: remainingErr } = await supabase
+        .from("room_participants")
+        .select("*")
+        .eq("room_id", room.id);
 
-        if (newHost) {
+      if (remainingErr) {
+        console.error("Error fetching remaining players:", remainingErr);
+      }
+
+      // 🔥 NEW: Handle host transfer/deletion based on FRESH data
+      if (currentIsHost) {
+        if (!remainingPlayers || remainingPlayers.length === 0) {
+          // No one left → delete room
+          await supabase.from("game_rooms").delete().eq("id", room.id);
+        } else {
+          // Promote FIRST remaining player to host
+          const newHost = remainingPlayers[0];
           await supabase
             .from("game_rooms")
             .update({ host_id: newHost.user_id })
             .eq("id", room.id);
+          console.log("👑 New host:", newHost.user_id);
         }
       }
 
-      // If host is leaving and is the only player, delete the room
-      if (isHost && players.length === 1) {
-        await supabase.from("game_rooms").delete().eq("id", room.id);
-      }
-
-      // Clear localStorage
       localStorage.removeItem(`profile_id_${roomCode?.toUpperCase()}`);
-
-      // Navigate home
       navigate("/");
     } catch (err) {
       console.error("Error in handleLeaveRoom:", err);
@@ -323,96 +334,99 @@ const Lobby = () => {
         {/* Grid */}
         <div className="grid lg:grid-cols-2 gap-8">
           {/* ⚙️ Game Settings */}
-          <div className="space-y-6 bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-6 shadow-inner animate-fade-in-up">
-            <div className="flex items-center gap-2 mb-4">
-              <Settings className="w-5 h-5 text-primary" />
-              <h2 className="text-lg font-heading font-bold">Game Settings</h2>
-            </div>
+          {currentIsHost && (
+            <div className="space-y-6 bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-6 shadow-inner animate-fade-in-up">
+              <div className="flex items-center gap-2 mb-4">
+                <Settings className="w-5 h-5 text-primary" />
+                <h2 className="text-lg font-heading font-bold">
+                  Game Settings
+                </h2>
+              </div>
 
-            <div className="flex items-center justify-between">
-              <span>No. of Traitors</span>
-              <Select
-                value={settings.traitors.toString()}
-                onValueChange={(v) =>
-                  updateGameSettings({ ...settings, traitors: parseInt(v) })
-                }
-              >
-                <SelectTrigger className="w-24 bg-background/50 border-border/40">
-                  <SelectValue placeholder="1" />
-                </SelectTrigger>
-                <SelectContent>
-                  {[1, 2, 3].map((n) => (
-                    <SelectItem key={n} value={n.toString()}>
-                      {n}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+              <div className="flex items-center justify-between">
+                <span>No. of Traitors</span>
+                <Select
+                  value={settings.traitors.toString()}
+                  onValueChange={(v) =>
+                    updateGameSettings({ ...settings, traitors: parseInt(v) })
+                  }
+                >
+                  <SelectTrigger className="w-24 bg-background/50 border-border/40">
+                    <SelectValue placeholder="1" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[1, 2, 3].map((n) => (
+                      <SelectItem key={n} value={n.toString()}>
+                        {n}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-            <div className="flex items-center justify-between">
-              <span>Hint Drop Timing (sec)</span>
-              <Select
-                value={settings.hintTime.toString()}
-                onValueChange={(v) =>
-                  updateGameSettings({ ...settings, hintTime: parseInt(v) })
-                }
-              >
-                <SelectTrigger className="w-28 bg-background/50 border-border/40">
-                  <SelectValue placeholder="30" />
-                </SelectTrigger>
-                <SelectContent>
-                  {[30, 45, 60, 90].map((n) => (
-                    <SelectItem key={n} value={n.toString()}>
-                      {n}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+              <div className="flex items-center justify-between">
+                <span>Hint Drop Timing (sec)</span>
+                <Select
+                  value={settings.hintTime.toString()}
+                  onValueChange={(v) =>
+                    updateGameSettings({ ...settings, hintTime: parseInt(v) })
+                  }
+                >
+                  <SelectTrigger className="w-28 bg-background/50 border-border/40">
+                    <SelectValue placeholder="30" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[30, 45, 60, 90].map((n) => (
+                      <SelectItem key={n} value={n.toString()}>
+                        {n}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-            <div className="flex items-center justify-between">
-              <span>Level of Words</span>
-              <Select
-                value={settings.wordLevel}
-                onValueChange={(v) =>
-                  updateGameSettings({ ...settings, wordLevel: v })
-                }
-              >
-                <SelectTrigger className="w-28 bg-background/50 border-border/40">
-                  <SelectValue placeholder="Medium" />
-                </SelectTrigger>
-                <SelectContent>
-                  {["easy", "medium", "hard"].map((lvl) => (
-                    <SelectItem key={lvl} value={lvl}>
-                      {lvl.charAt(0).toUpperCase() + lvl.slice(1)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+              <div className="flex items-center justify-between">
+                <span>Level of Words</span>
+                <Select
+                  value={settings.wordLevel}
+                  onValueChange={(v) =>
+                    updateGameSettings({ ...settings, wordLevel: v })
+                  }
+                >
+                  <SelectTrigger className="w-28 bg-background/50 border-border/40">
+                    <SelectValue placeholder="Medium" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {["easy", "medium", "hard"].map((lvl) => (
+                      <SelectItem key={lvl} value={lvl}>
+                        {lvl.charAt(0).toUpperCase() + lvl.slice(1)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-            <div className="flex items-center justify-between">
-              <span>18+ Words</span>
-              <Switch
-                checked={settings.adultWords}
-                onCheckedChange={(val) =>
-                  updateGameSettings({ ...settings, adultWords: val })
-                }
-              />
-            </div>
+              <div className="flex items-center justify-between">
+                <span>18+ Words</span>
+                <Switch
+                  checked={settings.adultWords}
+                  onCheckedChange={(val) =>
+                    updateGameSettings({ ...settings, adultWords: val })
+                  }
+                />
+              </div>
 
-            <div className="flex items-center justify-between">
-              <span>Anonymous Voting</span>
-              <Switch
-                checked={settings.anonymousVoting}
-                onCheckedChange={(val) =>
-                  updateGameSettings({ ...settings, anonymousVoting: val })
-                }
-              />
+              <div className="flex items-center justify-between">
+                <span>Anonymous Voting</span>
+                <Switch
+                  checked={settings.anonymousVoting}
+                  onCheckedChange={(val) =>
+                    updateGameSettings({ ...settings, anonymousVoting: val })
+                  }
+                />
+              </div>
             </div>
-          </div>
-
+          )}
           {/* 👥 Player List */}
           <div className="space-y-4 animate-fade-in-up">
             <div className="flex items-center justify-between">
@@ -485,7 +499,7 @@ const Lobby = () => {
             </div>
 
             {/* Start Game Button */}
-            {isHost && (
+            {currentIsHost && (
               <div className="mt-6 text-center">
                 <Button
                   variant="neonCyan"
