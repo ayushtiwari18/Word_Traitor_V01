@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams, useLocation, useNavigate } from "react-router-dom";
+import { useParams, useLocation, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   Copy,
@@ -65,7 +65,7 @@ const Lobby = () => {
 
   // 🔁 Fetch room info & participants
   useEffect(() => {
-    let roomId = null;
+    let currentRoomId = null;
 
     const fetchRoomData = async () => {
       const { data: roomData, error: roomErr } = await supabase
@@ -83,7 +83,7 @@ const Lobby = () => {
         return;
       }
 
-      roomId = roomData.id;
+      currentRoomId = roomData.id;
       setRoom(roomData);
       if (roomData.settings) setSettings(roomData.settings);
 
@@ -100,7 +100,7 @@ const Lobby = () => {
 
     // Single channel for all realtime updates
     const channel = supabase
-      .channel(`lobby_${roomCode}`)
+      .channel(`lobby_${roomCode}_${Date.now()}`)
       .on(
         "postgres_changes",
         {
@@ -110,14 +110,8 @@ const Lobby = () => {
         },
         (payload) => {
           console.log("🔄 Participant change detected:", payload);
-          // Only refetch if it's for our room
-          if (
-            !roomId ||
-            payload.new?.room_id === roomId ||
-            payload.old?.room_id === roomId
-          ) {
-            fetchRoomData();
-          }
+          console.log("Event type:", payload.eventType);
+          fetchRoomData();
         }
       )
       .on(
@@ -139,11 +133,12 @@ const Lobby = () => {
           }
         }
       )
-      .subscribe((status, err) => {
-        console.log("📡 Realtime subscription status:", status, err);
+      .subscribe((status) => {
+        console.log("📡 Realtime subscription status:", status);
       });
 
     return () => {
+      console.log("🧹 Cleaning up subscription");
       supabase.removeChannel(channel);
     };
   }, [roomCode, navigate, playerName, isHost, profileId]);
@@ -194,7 +189,7 @@ const Lobby = () => {
 
       console.log("🎮 Game started:", data);
 
-      // update status to 'playing' & save final settings (edge function already does this, but ensure it)
+      // update status to 'playing' & save final settings
       const { error } = await supabase
         .from("game_rooms")
         .update({
@@ -217,16 +212,66 @@ const Lobby = () => {
     }
   };
 
+  // 🚪 Leave room and cleanup
+  const handleLeaveRoom = async () => {
+    if (!profileId || !room) {
+      navigate("/");
+      return;
+    }
+
+    try {
+      // Delete participant from room
+      const { error: deleteError } = await supabase
+        .from("room_participants")
+        .delete()
+        .eq("room_id", room.id)
+        .eq("user_id", profileId);
+
+      if (deleteError) {
+        console.error("Error leaving room:", deleteError);
+      }
+
+      // If host is leaving, transfer host to another player
+      if (isHost && players.length > 1) {
+        const newHost = players.find((p) => p.user_id !== profileId);
+
+        if (newHost) {
+          await supabase
+            .from("game_rooms")
+            .update({ host_id: newHost.user_id })
+            .eq("id", room.id);
+        }
+      }
+
+      // If host is leaving and is the only player, delete the room
+      if (isHost && players.length === 1) {
+        await supabase.from("game_rooms").delete().eq("id", room.id);
+      }
+
+      // Clear localStorage
+      localStorage.removeItem(`profile_id_${roomCode?.toUpperCase()}`);
+
+      // Navigate home
+      navigate("/");
+    } catch (err) {
+      console.error("Error in handleLeaveRoom:", err);
+      navigate("/");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background gradient-mesh">
       <div className="container max-w-5xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-8 animate-fade-in-up">
-          <Link to="/">
-            <Button variant="ghost" size="sm" className="gap-2">
-              <ArrowLeft className="w-4 h-4" /> Exit
-            </Button>
-          </Link>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2"
+            onClick={handleLeaveRoom}
+          >
+            <ArrowLeft className="w-4 h-4" /> Exit
+          </Button>
 
           <div className="flex items-center gap-4">
             {/* Room Code */}
@@ -253,7 +298,7 @@ const Lobby = () => {
               </div>
             </div>
 
-            {/* Shareable Link */}
+            {/* Shareable Link Button */}
             <Button
               variant="outline"
               size="sm"
@@ -397,7 +442,8 @@ const Lobby = () => {
                 </div>
               ))}
             </div>
-            {/* Add this NEW section after the players list */}
+
+            {/* Invite Players Card */}
             <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-6">
               <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
                 <Link2 className="w-4 h-4 text-primary" />
@@ -438,6 +484,7 @@ const Lobby = () => {
               </div>
             </div>
 
+            {/* Start Game Button */}
             {isHost && (
               <div className="mt-6 text-center">
                 <Button
