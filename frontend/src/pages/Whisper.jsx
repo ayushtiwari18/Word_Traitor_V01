@@ -31,6 +31,8 @@ const Whisper = () => {
   const hasNavigated = useRef(false);
   const [showTraitorLeftModal, setShowTraitorLeftModal] = useState(false);
 
+  const isHostNow = !!(room?.host_id && profileId && room.host_id === profileId);
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -55,10 +57,12 @@ const Whisper = () => {
         }
         setRoom(roomData);
 
+        const isHostFromRoom = !!(roomData.host_id && profileId && roomData.host_id === profileId);
+
         if (roomData.status === "hint_drop" && !hasNavigated.current) {
           hasNavigated.current = true;
           navigate(`/hint/${roomCode}`, {
-            state: { playerName, isHost, profileId },
+            state: { playerName, isHost: isHostFromRoom, profileId },
           });
           return;
         }
@@ -122,8 +126,13 @@ const Whisper = () => {
             !hasNavigated.current
           ) {
             hasNavigated.current = true;
+            const isHostFromPayload = !!(
+              payload.new?.host_id &&
+              profileId &&
+              payload.new.host_id === profileId
+            );
             navigate(`/hint/${roomCode}`, {
-              state: { playerName, isHost, profileId },
+              state: { playerName, isHost: isHostFromPayload, profileId },
             });
           }
         }
@@ -149,7 +158,7 @@ const Whisper = () => {
     if (
       revealed &&
       countdown === 0 &&
-      isHost &&
+      isHostNow &&
       room &&
       !hasNavigated.current
     ) {
@@ -165,7 +174,7 @@ const Whisper = () => {
         } else {
           hasNavigated.current = true;
           navigate(`/hint/${roomCode}`, {
-            state: { playerName, isHost, profileId },
+            state: { playerName, isHost: true, profileId },
           });
         }
       };
@@ -174,7 +183,7 @@ const Whisper = () => {
   }, [
     revealed,
     countdown,
-    isHost,
+    isHostNow,
     room,
     roomCode,
     navigate,
