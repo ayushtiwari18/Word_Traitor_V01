@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabaseClient";
 
 const Discussion = () => {
+  const VOTE_DURATION_SECONDS = 120;
+
   const { roomCode } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -20,7 +22,7 @@ const Discussion = () => {
   const [hints, setHints] = useState([]);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
-  const [timeLeft, setTimeLeft] = useState(120);
+  const [timeLeft, setTimeLeft] = useState(VOTE_DURATION_SECONDS);
   
   const [myVote, setMyVote] = useState(null);
   const [votes, setVotes] = useState([]);
@@ -42,6 +44,35 @@ const Discussion = () => {
   }, [voteSession]);
 
   const isHostNow = !!(room?.host_id && profileId && room.host_id === profileId);
+
+  const computeTimeLeft = (startedAtIso) => {
+    if (!startedAtIso) return VOTE_DURATION_SECONDS;
+    const startedAtMs = new Date(startedAtIso).getTime();
+    if (Number.isNaN(startedAtMs)) return VOTE_DURATION_SECONDS;
+    const elapsedSeconds = Math.floor((Date.now() - startedAtMs) / 1000);
+    return Math.max(0, VOTE_DURATION_SECONDS - elapsedSeconds);
+  };
+
+  const ensureVoteSessionStartedAt = async (roomData, session, isHostFromRoomData) => {
+    if (!roomData?.id) return;
+    if (!isHostFromRoomData) return;
+    if (roomData?.settings?.voteSessionStartedAt) return;
+
+    try {
+      await supabase
+        .from("game_rooms")
+        .update({
+          settings: {
+            ...(roomData.settings || {}),
+            voteSession: session ?? 1,
+            voteSessionStartedAt: new Date().toISOString(),
+          },
+        })
+        .eq("id", roomData.id);
+    } catch (error) {
+      console.error("Error setting voteSessionStartedAt:", error);
+    }
+  };
 
   const endGame = async (result) => {
     if (!room || !isHostNow || endingInProgressRef.current) return;
@@ -87,11 +118,19 @@ const Discussion = () => {
         }
         setRoom(roomData);
 
+        const isHostFromRoomData = !!(roomData.host_id && profileId && roomData.host_id === profileId);
+
         const nextVoteSession = roomData?.settings?.voteSession ?? 1;
         setVoteSession(nextVoteSession);
         if (roomData?.settings?.gameResult) {
           setGameResult(roomData.settings.gameResult);
         }
+
+        // Restore timer from persisted start time (prevents refresh reset)
+        setTimeLeft(computeTimeLeft(roomData?.settings?.voteSessionStartedAt));
+
+        // Ensure there's a start time persisted once (host only)
+        await ensureVoteSessionStartedAt(roomData, nextVoteSession, isHostFromRoomData);
 
         const { data: participants } = await supabase
           .from("room_participants")
@@ -153,7 +192,7 @@ const Discussion = () => {
           setVotingComplete(false);
           setShowResults(false);
           setVotedPlayer(null);
-          setTimeLeft(120);
+          setTimeLeft(computeTimeLeft(roomData?.settings?.voteSessionStartedAt));
         }
         lastVoteSessionRef.current = nextVoteSession;
 
@@ -330,6 +369,10 @@ const Discussion = () => {
           if (payload.new?.settings?.voteSession) {
             setVoteSession(payload.new.settings.voteSession);
           }
+
+          if (payload.new?.settings?.voteSessionStartedAt) {
+            setTimeLeft(computeTimeLeft(payload.new.settings.voteSessionStartedAt));
+          }
         }
       )
       .subscribe();
@@ -463,6 +506,7 @@ const Discussion = () => {
             ...(room.settings || {}),
             voteSession: 1,
             gameResult: null,
+            voteSessionStartedAt: null,
           },
         })
         .eq("id", room.id);
@@ -522,6 +566,7 @@ const Discussion = () => {
           settings: {
             ...(room.settings || {}),
             voteSession: nextSession,
+            voteSessionStartedAt: new Date().toISOString(),
           },
         })
         .eq("id", room.id);
@@ -532,7 +577,7 @@ const Discussion = () => {
       setVotingComplete(false);
       setShowResults(false);
       setVotedPlayer(null);
-      setTimeLeft(120);
+      setTimeLeft(VOTE_DURATION_SECONDS);
 
       // Update eliminated players list
       setEliminatedPlayers(prev => [...prev, votedPlayer.user_id]);
