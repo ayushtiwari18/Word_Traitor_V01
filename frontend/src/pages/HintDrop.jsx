@@ -23,6 +23,63 @@ const HintDrop = () => {
   const [players, setPlayers] = useState([]);
   const [submittedPlayers, setSubmittedPlayers] = useState([]);
   const timerRef = useRef(null);
+  const hasHandledTimeUp = useRef(false);
+  const [serverOffsetMs, setServerOffsetMs] = useState(0);
+  const serverOffsetRef = useRef(0);
+
+  useEffect(() => {
+    serverOffsetRef.current = serverOffsetMs;
+  }, [serverOffsetMs]);
+
+  const syncServerTime = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("server-time", {
+        body: {},
+      });
+
+      if (error) {
+        console.warn("server-time error:", error);
+        return;
+      }
+
+      const serverIso = data?.serverTime;
+      const serverMs = new Date(serverIso).getTime();
+      if (!serverIso || Number.isNaN(serverMs)) return;
+
+      setServerOffsetMs(serverMs - Date.now());
+    } catch (e) {
+      console.warn("server-time invoke failed:", e);
+    }
+  };
+
+  const getServerNowIso = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("server-time", {
+        body: {},
+      });
+      if (error) throw error;
+      if (data?.serverTime) return data.serverTime;
+    } catch {
+      // fall back
+    }
+    return new Date().toISOString();
+  };
+
+  const computeTimeLeft = (startedAtIso, durationSeconds) => {
+    if (!startedAtIso) return durationSeconds;
+    const startedAtMs = new Date(startedAtIso).getTime();
+    if (Number.isNaN(startedAtMs)) return durationSeconds;
+    const nowMs = Date.now() + (serverOffsetRef.current || 0);
+    const elapsedSeconds = Math.floor((nowMs - startedAtMs) / 1000);
+    return Math.max(0, durationSeconds - elapsedSeconds);
+  };
+
+  useEffect(() => {
+    syncServerTime();
+    const interval = setInterval(() => syncServerTime(), 30000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Fetch room and setup
   useEffect(() => {
@@ -48,7 +105,23 @@ const HintDrop = () => {
         setRoom(roomData);
         const time = roomData.settings?.hintTime || 30;
         setHintTime(time);
-        setTimeLeft(time);
+        setTimeLeft(computeTimeLeft(roomData?.settings?.hintStartedAt, time));
+
+        // Ensure hint phase start is persisted once (host only)
+        if (!roomData?.settings?.hintStartedAt && isHost) {
+          const startedAt = await getServerNowIso();
+          await supabase
+            .from("game_rooms")
+            .update({
+              settings: {
+                ...(roomData.settings || {}),
+                hintStartedAt: startedAt,
+              },
+            })
+            .eq("id", roomData.id);
+
+          setTimeLeft(computeTimeLeft(startedAt, time));
+        }
 
         // Get participants
         const { data: participants } = await supabase
@@ -118,8 +191,17 @@ const HintDrop = () => {
           table: "game_rooms",
         },
         (payload) => {
-          if (payload.new?.room_code === roomCode?.toUpperCase() && payload.new?.status === "discussion") {
+          if (payload.new?.room_code !== roomCode?.toUpperCase()) return;
+
+          if (payload.new?.status === "discussion") {
             navigate(`/discussion/${roomCode}`, { state: { playerName, isHost, profileId } });
+          }
+
+          const nextHintStartedAt = payload.new?.settings?.hintStartedAt;
+          const nextHintTime = payload.new?.settings?.hintTime || hintTime;
+          if (nextHintStartedAt) {
+            setHintTime(nextHintTime);
+            setTimeLeft(computeTimeLeft(nextHintStartedAt, nextHintTime));
           }
         }
       )
@@ -131,19 +213,29 @@ const HintDrop = () => {
     };
   }, [room, roomCode, navigate, playerName, isHost, profileId]);
 
-  // Timer countdown
+  // Timer countdown (synced from persisted hintStartedAt)
   useEffect(() => {
-    if (timeLeft <= 0) {
-      handleTimeUp();
-      return;
-    }
+    if (!room) return;
 
-    timerRef.current = setTimeout(() => {
-      setTimeLeft(prev => prev - 1);
-    }, 1000);
+    const startedAt = room?.settings?.hintStartedAt;
+    if (!startedAt) return;
 
-    return () => clearTimeout(timerRef.current);
-  }, [timeLeft]);
+    hasHandledTimeUp.current = false;
+
+    const tick = () => {
+      const next = computeTimeLeft(startedAt, hintTime);
+      setTimeLeft(next);
+      if (next <= 0 && !hasHandledTimeUp.current) {
+        hasHandledTimeUp.current = true;
+        handleTimeUp();
+      }
+    };
+
+    tick();
+    timerRef.current = setInterval(tick, 1000);
+    return () => clearInterval(timerRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room?.id, room?.settings?.hintStartedAt, hintTime]);
 
   // Check if all players submitted
   useEffect(() => {

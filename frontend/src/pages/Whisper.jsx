@@ -6,6 +6,8 @@ import { supabase } from "@/lib/supabaseClient";
 import TraitorLeftModal from "@/components/TraitorLeftModal";
 
 const Whisper = () => {
+  const REVEAL_DURATION_SECONDS = 10;
+
   const { roomCode } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -26,12 +28,68 @@ const Whisper = () => {
   const [wordDescription, setWordDescription] = useState(null);
   const [loading, setLoading] = useState(true);
   const [room, setRoom] = useState(null);
-  const [countdown, setCountdown] = useState(10);
-  const countdownRef = useRef(null);
+  const [countdown, setCountdown] = useState(REVEAL_DURATION_SECONDS);
   const hasNavigated = useRef(false);
   const [showTraitorLeftModal, setShowTraitorLeftModal] = useState(false);
 
+  const [serverOffsetMs, setServerOffsetMs] = useState(0);
+  const serverOffsetRef = useRef(0);
+
   const isHostNow = !!(room?.host_id && profileId && room.host_id === profileId);
+
+  useEffect(() => {
+    serverOffsetRef.current = serverOffsetMs;
+  }, [serverOffsetMs]);
+
+  const syncServerTime = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("server-time", {
+        body: {},
+      });
+
+      if (error) {
+        console.warn("server-time error:", error);
+        return;
+      }
+
+      const serverIso = data?.serverTime;
+      const serverMs = new Date(serverIso).getTime();
+      if (!serverIso || Number.isNaN(serverMs)) return;
+
+      setServerOffsetMs(serverMs - Date.now());
+    } catch (e) {
+      console.warn("server-time invoke failed:", e);
+    }
+  };
+
+  const getServerNowIso = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("server-time", {
+        body: {},
+      });
+      if (error) throw error;
+      if (data?.serverTime) return data.serverTime;
+    } catch {
+      // fall back
+    }
+    return new Date().toISOString();
+  };
+
+  const computeTimeLeft = (startedAtIso, durationSeconds) => {
+    if (!startedAtIso) return durationSeconds;
+    const startedAtMs = new Date(startedAtIso).getTime();
+    if (Number.isNaN(startedAtMs)) return durationSeconds;
+    const nowMs = Date.now() + (serverOffsetRef.current || 0);
+    const elapsedSeconds = Math.floor((nowMs - startedAtMs) / 1000);
+    return Math.max(0, durationSeconds - elapsedSeconds);
+  };
+
+  useEffect(() => {
+    syncServerTime();
+    const interval = setInterval(() => syncServerTime(), 30000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -58,6 +116,29 @@ const Whisper = () => {
         setRoom(roomData);
 
         const isHostFromRoom = !!(roomData.host_id && profileId && roomData.host_id === profileId);
+
+        // Ensure reveal phase start is persisted once (host only)
+        if (!roomData?.settings?.wordRevealStartedAt && isHostFromRoom) {
+          const startedAt = await getServerNowIso();
+          const nextSettings = {
+            ...(roomData.settings || {}),
+            wordRevealStartedAt: startedAt,
+          };
+
+          await supabase
+            .from("game_rooms")
+            .update({ settings: nextSettings })
+            .eq("id", roomData.id);
+
+          setRoom((prev) => ({ ...(prev || roomData), settings: nextSettings }));
+        }
+
+        setCountdown(
+          computeTimeLeft(
+            roomData?.settings?.wordRevealStartedAt,
+            REVEAL_DURATION_SECONDS
+          )
+        );
 
         if (roomData.status === "hint_drop" && !hasNavigated.current) {
           hasNavigated.current = true;
@@ -116,11 +197,12 @@ const Whisper = () => {
         },
         (payload) => {
           console.log("🎮 Room status changed:", payload.new?.status);
-          if (
-            payload.new?.room_code === roomCode?.toUpperCase() &&
-            payload.new?.status === "hint_drop" &&
-            !hasNavigated.current
-          ) {
+          if (payload.new?.room_code !== roomCode?.toUpperCase()) return;
+
+          // Keep local room/settings in sync (timers rely on settings timestamps)
+          setRoom(payload.new);
+
+          if (payload.new?.status === "hint_drop" && !hasNavigated.current) {
             hasNavigated.current = true;
             const isHostFromPayload = !!(
               payload.new?.host_id &&
@@ -141,51 +223,60 @@ const Whisper = () => {
     };
   }, [roomCode, navigate, playerName, isHost, profileId]);
 
-  // Countdown after reveal - auto move to hint phase when countdown reaches 0
+  // Keep countdown synced to persisted start time
   useEffect(() => {
-    if (revealed && countdown > 0) {
-      countdownRef.current = setTimeout(
-        () => setCountdown(countdown - 1),
-        1000
-      );
-      return () => clearTimeout(countdownRef.current);
-    }
+    if (!room?.settings?.wordRevealStartedAt) return;
 
-    if (
-      revealed &&
-      countdown === 0 &&
-      isHostNow &&
-      room &&
-      !hasNavigated.current
-    ) {
-      const moveToHintPhase = async () => {
-        console.log("⏰ Countdown ended, moving to hint phase...");
+    const tick = () => {
+      setCountdown(
+        computeTimeLeft(
+          room.settings.wordRevealStartedAt,
+          REVEAL_DURATION_SECONDS
+        )
+      );
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [room?.settings?.wordRevealStartedAt]);
+
+  // Host advances everyone to hint phase when timer ends (synced)
+  useEffect(() => {
+    if (!room || !isHostNow || hasNavigated.current) return;
+    if (countdown > 0) return;
+
+    const moveToHintPhase = async () => {
+      try {
+        console.log("⏰ Reveal timer ended, moving to hint phase...");
+        const hintStartedAt = await getServerNowIso();
         const { error } = await supabase
           .from("game_rooms")
-          .update({ status: "hint_drop" })
+          .update({
+            status: "hint_drop",
+            settings: {
+              ...(room.settings || {}),
+              hintStartedAt,
+            },
+          })
           .eq("id", room.id);
 
         if (error) {
           console.error("Error moving to hint phase:", error);
-        } else {
-          hasNavigated.current = true;
-          navigate(`/hint/${roomCode}`, {
-            state: { playerName, isHost: true, profileId },
-          });
+          return;
         }
-      };
-      moveToHintPhase();
-    }
-  }, [
-    revealed,
-    countdown,
-    isHostNow,
-    room,
-    roomCode,
-    navigate,
-    playerName,
-    profileId,
-  ]);
+
+        hasNavigated.current = true;
+        navigate(`/hint/${roomCode}`, {
+          state: { playerName, isHost: true, profileId },
+        });
+      } catch (e) {
+        console.error("Error moving to hint phase:", e);
+      }
+    };
+
+    moveToHintPhase();
+  }, [countdown, isHostNow, room, roomCode, navigate, playerName, profileId]);
 
   const handleLeaveGame = async () => {
     if (!profileId || !room) {
