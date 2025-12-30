@@ -34,23 +34,71 @@ const Discussion = () => {
   const [eliminatedPlayers, setEliminatedPlayers] = useState([]);
   const [voteSession, setVoteSession] = useState(1);
   const [gameResult, setGameResult] = useState(null);
+  const [serverOffsetMs, setServerOffsetMs] = useState(0);
 
   const voteSessionRef = useRef(1);
   const lastVoteSessionRef = useRef(null);
   const endingInProgressRef = useRef(false);
+  const serverOffsetRef = useRef(0);
 
   useEffect(() => {
     voteSessionRef.current = voteSession;
   }, [voteSession]);
 
+  useEffect(() => {
+    serverOffsetRef.current = serverOffsetMs;
+  }, [serverOffsetMs]);
+
   const isHostNow = !!(room?.host_id && profileId && room.host_id === profileId);
+
+  const syncServerTime = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("server-time", {
+        body: {},
+      });
+
+      if (error) {
+        console.warn("server-time error:", error);
+        return;
+      }
+
+      const serverIso = data?.serverTime;
+      const serverMs = new Date(serverIso).getTime();
+      if (!serverIso || Number.isNaN(serverMs)) return;
+
+      const offset = serverMs - Date.now();
+      setServerOffsetMs(offset);
+    } catch (e) {
+      console.warn("server-time invoke failed:", e);
+    }
+  };
+
+  useEffect(() => {
+    // Get an initial offset; timer math uses it.
+    syncServerTime();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const computeTimeLeft = (startedAtIso) => {
     if (!startedAtIso) return VOTE_DURATION_SECONDS;
     const startedAtMs = new Date(startedAtIso).getTime();
     if (Number.isNaN(startedAtMs)) return VOTE_DURATION_SECONDS;
-    const elapsedSeconds = Math.floor((Date.now() - startedAtMs) / 1000);
+    const nowMs = Date.now() + (serverOffsetRef.current || 0);
+    const elapsedSeconds = Math.floor((nowMs - startedAtMs) / 1000);
     return Math.max(0, VOTE_DURATION_SECONDS - elapsedSeconds);
+  };
+
+  const getServerNowIso = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("server-time", {
+        body: {},
+      });
+      if (error) throw error;
+      if (data?.serverTime) return data.serverTime;
+    } catch {
+      // fall back
+    }
+    return new Date().toISOString();
   };
 
   const ensureVoteSessionStartedAt = async (roomData, session, isHostFromRoomData) => {
@@ -59,13 +107,14 @@ const Discussion = () => {
     if (roomData?.settings?.voteSessionStartedAt) return;
 
     try {
+      const startedAt = await getServerNowIso();
       await supabase
         .from("game_rooms")
         .update({
           settings: {
             ...(roomData.settings || {}),
             voteSession: session ?? 1,
-            voteSessionStartedAt: new Date().toISOString(),
+            voteSessionStartedAt: startedAt,
           },
         })
         .eq("id", roomData.id);
@@ -560,13 +609,14 @@ const Discussion = () => {
 
       // Advance vote session so ALL clients reset their local voting state
       const nextSession = (voteSessionRef.current || 1) + 1;
+      const startedAt = await getServerNowIso();
       await supabase
         .from("game_rooms")
         .update({
           settings: {
             ...(room.settings || {}),
             voteSession: nextSession,
-            voteSessionStartedAt: new Date().toISOString(),
+            voteSessionStartedAt: startedAt,
           },
         })
         .eq("id", room.id);
