@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { MessageCircle, Send, Clock, Users, Vote, CheckCircle, XCircle, Trophy, Skull } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,41 @@ const Discussion = () => {
   const [showResults, setShowResults] = useState(false);
   const [isSpectator, setIsSpectator] = useState(false);
   const [eliminatedPlayers, setEliminatedPlayers] = useState([]);
+  const [voteSession, setVoteSession] = useState(1);
+  const [gameResult, setGameResult] = useState(null);
+
+  const voteSessionRef = useRef(1);
+  const lastVoteSessionRef = useRef(null);
+  const endingInProgressRef = useRef(false);
+
+  useEffect(() => {
+    voteSessionRef.current = voteSession;
+  }, [voteSession]);
+
+  const isHostNow = !!(room?.host_id && profileId && room.host_id === profileId);
+
+  const endGame = async (result) => {
+    if (!room || !isHostNow || endingInProgressRef.current) return;
+
+    try {
+      endingInProgressRef.current = true;
+      const nextSettings = {
+        ...(room.settings || {}),
+        gameResult: result,
+      };
+
+      await supabase
+        .from("game_rooms")
+        .update({ status: "finished", settings: nextSettings })
+        .eq("id", room.id);
+
+      setGameResult(result);
+    } catch (error) {
+      console.error("Error ending game:", error);
+    } finally {
+      // keep true to avoid repeated writes
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -51,6 +86,12 @@ const Discussion = () => {
           return;
         }
         setRoom(roomData);
+
+        const nextVoteSession = roomData?.settings?.voteSession ?? 1;
+        setVoteSession(nextVoteSession);
+        if (roomData?.settings?.gameResult) {
+          setGameResult(roomData.settings.gameResult);
+        }
 
         const { data: participants } = await supabase
           .from("room_participants")
@@ -105,7 +146,18 @@ const Discussion = () => {
           console.log("🔍 Traitor identified:", traitor.user_id);
         }
 
-        await fetchVotes(roomData.id);
+        // If vote session changed (e.g. host continued to next voting round), reset local vote UI
+        if (lastVoteSessionRef.current !== null && lastVoteSessionRef.current !== nextVoteSession) {
+          setVotes([]);
+          setMyVote(null);
+          setVotingComplete(false);
+          setShowResults(false);
+          setVotedPlayer(null);
+          setTimeLeft(120);
+        }
+        lastVoteSessionRef.current = nextVoteSession;
+
+        await fetchVotes(roomData.id, nextVoteSession);
         fetchMessages(roomData.id);
       } catch (error) {
         console.error("Error:", error);
@@ -115,15 +167,16 @@ const Discussion = () => {
     fetchData();
   }, [roomCode, navigate, profileId]);
 
-  const fetchVotes = async (roomId) => {
+  const fetchVotes = async (roomId, session = voteSessionRef.current) => {
     const { data: votesData } = await supabase
       .from("game_votes")
       .select("*")
-      .eq("room_id", roomId);
+      .eq("room_id", roomId)
+      .eq("round_number", session);
 
     setVotes(votesData || []);
 
-    const myExistingVote = votesData?.find(v => v.voter_id === profileId);
+    const myExistingVote = (votesData || []).find(v => v.voter_id === profileId);
     if (myExistingVote) {
       setMyVote(myExistingVote.voted_user_id);
     }
@@ -183,8 +236,37 @@ const Discussion = () => {
       setVotedPlayer(votedPlayerData);
       setVotingComplete(true);
       setShowResults(true);
+
+      // If traitor is voted out, end game immediately (host persists for everyone)
+      if (votedPlayerData?.user_id && votedPlayerData.user_id === traitorId) {
+        endGame({
+          winner: "citizens",
+          reason: "traitor_voted_out",
+          traitorId,
+          votedOutId: votedPlayerData.user_id,
+          voteSession: voteSessionRef.current,
+        });
+      }
     }
-  }, [votes, players, room, votingComplete]);
+  }, [votes, players, room, votingComplete, traitorId]);
+
+  useEffect(() => {
+    if (!room || !traitorId || !players.length) return;
+    if (!isHostNow) return;
+    if (room.status === "finished") return;
+
+    const alivePlayers = players.filter(p => p.is_alive !== false);
+    const traitorAlive = alivePlayers.some(p => p.user_id === traitorId);
+
+    // If only 2 players remain alive and traitor is among them, traitor wins.
+    if (alivePlayers.length <= 2 && traitorAlive) {
+      endGame({
+        winner: "traitor",
+        reason: "two_players_left",
+        traitorId,
+      });
+    }
+  }, [players, traitorId, room, isHostNow]);
 
   useEffect(() => {
     if (!room) return;
@@ -211,7 +293,7 @@ const Discussion = () => {
           schema: "public",
           table: "game_votes",
         },
-        () => fetchVotes(room.id)
+        () => fetchVotes(room.id, voteSessionRef.current)
       )
       .subscribe();
 
@@ -226,10 +308,27 @@ const Discussion = () => {
           table: "game_rooms",
         },
         (payload) => {
-          if (payload.new?.room_code === roomCode?.toUpperCase() && payload.new?.status === "waiting") {
+          if (payload.new?.room_code !== roomCode?.toUpperCase()) return;
+
+          // Always refresh local room/settings on updates (vote session, result, etc.)
+          // NOTE: fetchData is defined in a separate effect; easiest is to refetch via queries we already have.
+          // We rely on participant/vote channels plus this to navigate.
+          if (payload.new?.status === "waiting") {
             navigate(`/lobby/${roomCode}`, {
-              state: { playerName, isHost: payload.new?.host_id === profileId, profileId }
+              state: { playerName, isHost: payload.new?.host_id === profileId, profileId },
             });
+          }
+
+          if (payload.new?.status === "finished") {
+            // Pull fresh room data through the main fetch effect by nudging local state
+            setRoom((prev) => ({ ...(prev || {}), status: "finished", settings: payload.new?.settings }));
+            if (payload.new?.settings?.gameResult) {
+              setGameResult(payload.new.settings.gameResult);
+            }
+          }
+
+          if (payload.new?.settings?.voteSession) {
+            setVoteSession(payload.new.settings.voteSession);
           }
         }
       )
@@ -309,7 +408,7 @@ const Discussion = () => {
       room_id: room.id,
       voter_id: profileId,
       voted_user_id: votedForId,
-      round_number: room.current_round || 1,
+      round_number: voteSessionRef.current,
     }).select();
 
     if (error) {
@@ -357,7 +456,15 @@ const Discussion = () => {
       // Update room status to waiting
       await supabase
         .from("game_rooms")
-        .update({ status: "waiting", current_round: 1 })
+        .update({
+          status: "waiting",
+          current_round: 1,
+          settings: {
+            ...(room.settings || {}),
+            voteSession: 1,
+            gameResult: null,
+          },
+        })
         .eq("id", room.id);
 
       navigate(`/lobby/${roomCode}`, {
@@ -372,6 +479,9 @@ const Discussion = () => {
   const handleContinueGame = async () => {
     if (!room || !votedPlayer) return;
 
+    // Only host should advance the next voting session for everyone
+    if (!isHostNow) return;
+
     try {
       // Mark the voted player as eliminated (spectator)
       await supabase
@@ -380,8 +490,41 @@ const Discussion = () => {
         .eq("room_id", room.id)
         .eq("user_id", votedPlayer.user_id);
 
-      // Clear votes for the next round of voting
-      await supabase.from("game_votes").delete().eq("room_id", room.id);
+      // Clear votes for THIS session (next session will be fresh)
+      await supabase
+        .from("game_votes")
+        .delete()
+        .eq("room_id", room.id)
+        .eq("round_number", voteSessionRef.current);
+
+      // After elimination, check if game should immediately end (2 alive with traitor)
+      const { data: updatedParticipants } = await supabase
+        .from("room_participants")
+        .select("user_id, is_alive, role")
+        .eq("room_id", room.id);
+
+      const alivePlayers = (updatedParticipants || []).filter(p => p.is_alive !== false);
+      const traitorAlive = alivePlayers.some(p => p.user_id === traitorId || p.role === "traitor");
+      if (alivePlayers.length <= 2 && traitorAlive) {
+        await endGame({
+          winner: "traitor",
+          reason: "two_players_left",
+          traitorId,
+        });
+        return;
+      }
+
+      // Advance vote session so ALL clients reset their local voting state
+      const nextSession = (voteSessionRef.current || 1) + 1;
+      await supabase
+        .from("game_rooms")
+        .update({
+          settings: {
+            ...(room.settings || {}),
+            voteSession: nextSession,
+          },
+        })
+        .eq("id", room.id);
 
       // Reset local state for next voting round
       setVotes([]);
@@ -402,6 +545,55 @@ const Discussion = () => {
       console.error("Error continuing game:", error);
     }
   };
+
+  // If game is ended (either by vote or by 2-players-left), show final result screen
+  if (gameResult?.winner) {
+    const traitorName = traitorId ? getPlayerName(traitorId) : "Unknown";
+    const citizensWon = gameResult.winner === "citizens";
+
+    return (
+      <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center">
+        <div className="container max-w-lg mx-auto px-4">
+          <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-8 shadow-xl animate-fade-in-up text-center">
+            <div className={`w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center ${
+              citizensWon ? "bg-green-500/20 border-2 border-green-500" : "bg-red-500/20 border-2 border-red-500"
+            }`}>
+              {citizensWon ? (
+                <Trophy className="w-10 h-10 text-green-500" />
+              ) : (
+                <Skull className="w-10 h-10 text-red-500" />
+              )}
+            </div>
+
+            <h1 className="text-3xl font-heading font-bold mb-2">
+              {citizensWon ? "Citizens Win!" : "Traitor Wins!"}
+            </h1>
+
+            <p className="text-muted-foreground mb-6">
+              {citizensWon
+                ? "The traitor has been eliminated."
+                : "Only two players remain. The traitor escapes."}
+            </p>
+
+            <div className="bg-background/50 rounded-xl p-4 mb-6">
+              <h3 className="text-lg font-bold mb-2">Traitor Reveal</h3>
+              <p className="text-sm text-muted-foreground">The traitor was</p>
+              <p className="text-xl font-heading font-bold text-secondary">{traitorName}</p>
+            </div>
+
+            <Button
+              variant="neonCyan"
+              size="lg"
+              onClick={handleBackToLobby}
+              disabled={!isHostNow}
+            >
+              {isHostNow ? "Back to Lobby" : "Waiting for host..."}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (showResults && votedPlayer) {
     return (
@@ -441,9 +633,8 @@ const Discussion = () => {
               <div className="space-y-2">
                 {players.map(p => (
                   <div key={p.user_id} className="flex items-center justify-between">
-                    <span className={p.user_id === traitorId ? "text-red-400" : ""}>
+                    <span className={""}>
                       {p.profiles?.username}
-                      {p.user_id === traitorId && " (Traitor)"}
                       {p.is_alive === false && " (Eliminated)"}
                     </span>
                     <span className="font-mono">{getVoteCount(p.user_id)} votes</span>
@@ -477,8 +668,9 @@ const Discussion = () => {
                   variant="neonCyan"
                   size="lg"
                   onClick={handleContinueGame}
+                  disabled={!isHostNow}
                 >
-                  Continue Voting
+                  {isHostNow ? "Continue Voting" : "Waiting for host..."}
                 </Button>
               </>
             )}
