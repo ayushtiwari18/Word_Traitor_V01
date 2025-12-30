@@ -21,7 +21,9 @@ const HintDrop = () => {
   const [hintTime, setHintTime] = useState(30);
   const [timeLeft, setTimeLeft] = useState(30);
   const [players, setPlayers] = useState([]);
+  const [alivePlayers, setAlivePlayers] = useState([]);
   const [submittedPlayers, setSubmittedPlayers] = useState([]);
+  const [isSpectator, setIsSpectator] = useState(false);
   const timerRef = useRef(null);
   const hasHandledTimeUp = useRef(false);
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
@@ -130,6 +132,17 @@ const HintDrop = () => {
           .eq("room_id", roomData.id);
 
         setPlayers(participants || []);
+        
+        // Filter to only alive players (spectators don't participate in hints)
+        const alive = (participants || []).filter(p => p.is_alive !== false);
+        setAlivePlayers(alive);
+        
+        // Check if current user is a spectator (eliminated)
+        const currentParticipant = (participants || []).find(p => p.user_id === profileId);
+        if (currentParticipant?.is_alive === false) {
+          setIsSpectator(true);
+          setSubmitted(true); // Spectators don't need to submit
+        }
 
         // Check if user already submitted hint
         const { data: existingHint } = await supabase
@@ -237,19 +250,19 @@ const HintDrop = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room?.id, room?.settings?.hintStartedAt, hintTime]);
 
-  // Check if all players submitted
+  // Check if all alive players submitted
   useEffect(() => {
-    if (players.length > 0 && submittedPlayers.length >= players.length) {
-      // All players submitted, host can proceed
+    if (alivePlayers.length > 0 && submittedPlayers.length >= alivePlayers.length) {
+      // All alive players submitted, host can proceed
       if (isHost) {
         moveToDiscussion();
       }
     }
-  }, [submittedPlayers, players, isHost]);
+  }, [submittedPlayers, alivePlayers, isHost]);
 
   const handleTimeUp = async () => {
-    // Auto-submit empty hint if not submitted
-    if (!submitted && profileId && room) {
+    // Auto-submit empty hint if not submitted (and not a spectator)
+    if (!submitted && !isSpectator && profileId && room) {
       await supabase.from("game_hints").insert({
         room_id: room.id,
         user_id: profileId,
@@ -266,9 +279,16 @@ const HintDrop = () => {
   const moveToDiscussion = async () => {
     if (!room) return;
 
+    const voteSessionStartedAt = await getServerNowIso();
     const { error } = await supabase
       .from("game_rooms")
-      .update({ status: "discussion" })
+      .update({
+        status: "discussion",
+        settings: {
+          ...(room.settings || {}),
+          voteSessionStartedAt,
+        },
+      })
       .eq("id", room.id);
 
     if (!error) {
@@ -311,49 +331,64 @@ const HintDrop = () => {
             </span>
           </div>
 
-          <h1 className="text-2xl font-heading font-bold text-center mb-2">
-            Drop Your Hint
-          </h1>
-          <p className="text-muted-foreground text-center mb-8">
-            Give a one-word hint related to your secret word
-          </p>
-
-          {/* Hint Input */}
-          {!submitted ? (
-            <div className="space-y-4">
-              <Input
-                type="text"
-                placeholder="Enter your hint..."
-                value={hint}
-                onChange={(e) => setHint(e.target.value)}
-                className="text-center text-lg py-6 bg-background/50 border-border/40"
-                maxLength={30}
-                disabled={timeLeft <= 0}
-              />
-              <Button
-                variant="neonCyan"
-                size="lg"
-                className="w-full gap-2"
-                onClick={handleSubmitHint}
-                disabled={!hint.trim() || timeLeft <= 0}
-              >
-                <Send className="w-5 h-5" />
-                Submit Hint
-              </Button>
-            </div>
-          ) : (
-            <div className="text-center space-y-4">
-              <div className="flex items-center justify-center gap-2 text-green-500">
-                <CheckCircle className="w-6 h-6" />
-                <span className="text-lg font-medium">Hint Submitted!</span>
-              </div>
-              <div className="p-4 rounded-xl bg-muted/50 border border-border/40">
-                <span className="text-xl font-medium">"{hint}"</span>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Waiting for other players...
+          {isSpectator ? (
+            <>
+              <h1 className="text-2xl font-heading font-bold text-center mb-2">
+                👻 Spectator Mode
+              </h1>
+              <p className="text-muted-foreground text-center mb-8">
+                You were eliminated. Watch as others drop their hints.
               </p>
-            </div>
+            </>
+          ) : (
+            <>
+              <h1 className="text-2xl font-heading font-bold text-center mb-2">
+                Drop Your Hint
+              </h1>
+              <p className="text-muted-foreground text-center mb-8">
+                Give a one-word hint related to your secret word
+              </p>
+            </>
+          )}
+
+          {/* Hint Input - only show for non-spectators */}
+          {!isSpectator && (
+            !submitted ? (
+              <div className="space-y-4">
+                <Input
+                  type="text"
+                  placeholder="Enter your hint..."
+                  value={hint}
+                  onChange={(e) => setHint(e.target.value)}
+                  className="text-center text-lg py-6 bg-background/50 border-border/40"
+                  maxLength={30}
+                  disabled={timeLeft <= 0}
+                />
+                <Button
+                  variant="neonCyan"
+                  size="lg"
+                  className="w-full gap-2"
+                  onClick={handleSubmitHint}
+                  disabled={!hint.trim() || timeLeft <= 0}
+                >
+                  <Send className="w-5 h-5" />
+                  Submit Hint
+                </Button>
+              </div>
+            ) : (
+              <div className="text-center space-y-4">
+                <div className="flex items-center justify-center gap-2 text-green-500">
+                  <CheckCircle className="w-6 h-6" />
+                  <span className="text-lg font-medium">Hint Submitted!</span>
+                </div>
+                <div className="p-4 rounded-xl bg-muted/50 border border-border/40">
+                  <span className="text-xl font-medium">"{hint}"</span>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Waiting for other players...
+                </p>
+              </div>
+            )
           )}
 
           {/* Progress */}
@@ -361,11 +396,11 @@ const HintDrop = () => {
             <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
               <Users className="w-4 h-4" />
               <span>
-                {submittedPlayers.length} / {players.length} players submitted
+                {submittedPlayers.length} / {alivePlayers.length} players submitted
               </span>
             </div>
             <div className="flex flex-wrap gap-2">
-              {players.map((p) => (
+              {alivePlayers.map((p) => (
                 <div
                   key={p.id}
                   className={`

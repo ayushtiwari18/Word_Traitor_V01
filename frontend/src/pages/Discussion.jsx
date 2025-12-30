@@ -385,7 +385,7 @@ const Discussion = () => {
       )
       .subscribe();
 
-    // Subscribe to room status changes (for back to lobby)
+    // Subscribe to room status changes (for back to lobby and phase transitions)
     const roomChannel = supabase
       .channel(`room_status_${roomCode}`)
       .on(
@@ -398,12 +398,18 @@ const Discussion = () => {
         (payload) => {
           if (payload.new?.room_code !== roomCode?.toUpperCase()) return;
 
-          // Always refresh local room/settings on updates (vote session, result, etc.)
-          // NOTE: fetchData is defined in a separate effect; easiest is to refetch via queries we already have.
-          // We rely on participant/vote channels plus this to navigate.
+          // Navigate to lobby if room reset
           if (payload.new?.status === "waiting") {
             navigate(`/lobby/${roomCode}`, {
               state: { playerName, isHost: payload.new?.host_id === profileId, profileId },
+            });
+          }
+
+          // Navigate to hint drop phase (when innocent voted out, game continues)
+          if (payload.new?.status === "hint_drop") {
+            const isHostFromPayload = payload.new?.host_id === profileId;
+            navigate(`/hint/${roomCode}`, {
+              state: { playerName, isHost: isHostFromPayload, profileId },
             });
           }
 
@@ -569,10 +575,11 @@ const Discussion = () => {
   };
 
   // Handle continuing the game when an innocent is kicked
+  // Move everyone to hint drop phase for 2 new hints, then back to voting
   const handleContinueGame = async () => {
     if (!room || !votedPlayer) return;
 
-    // Only host should advance the next voting session for everyone
+    // Only host should advance the next phase for everyone
     if (!isHostNow) return;
 
     try {
@@ -582,13 +589,6 @@ const Discussion = () => {
         .update({ is_alive: false })
         .eq("room_id", room.id)
         .eq("user_id", votedPlayer.user_id);
-
-      // Clear votes for THIS session (next session will be fresh)
-      await supabase
-        .from("game_votes")
-        .delete()
-        .eq("room_id", room.id)
-        .eq("round_number", voteSessionRef.current);
 
       // After elimination, check if game should immediately end (2 alive with traitor)
       const { data: updatedParticipants } = await supabase
@@ -607,35 +607,42 @@ const Discussion = () => {
         return;
       }
 
-      // Advance vote session so ALL clients reset their local voting state
+      // Clear old hints for fresh hint round
+      await supabase
+        .from("game_hints")
+        .delete()
+        .eq("room_id", room.id);
+
+      // Clear votes for this session (next session will be fresh)
+      await supabase
+        .from("game_votes")
+        .delete()
+        .eq("room_id", room.id)
+        .eq("round_number", voteSessionRef.current);
+
+      // Advance vote session so next discussion round uses fresh votes
       const nextSession = (voteSessionRef.current || 1) + 1;
-      const startedAt = await getServerNowIso();
+      const hintStartedAt = await getServerNowIso();
+
+      // Update room to hint_drop phase with new hint round
       await supabase
         .from("game_rooms")
         .update({
+          status: "hint_drop",
           settings: {
             ...(room.settings || {}),
             voteSession: nextSession,
-            voteSessionStartedAt: startedAt,
+            hintRound: nextSession, // Track which hint round we're in
+            hintStartedAt,
+            voteSessionStartedAt: null, // Will be set when returning to discussion
           },
         })
         .eq("id", room.id);
 
-      // Reset local state for next voting round
-      setVotes([]);
-      setMyVote(null);
-      setVotingComplete(false);
-      setShowResults(false);
-      setVotedPlayer(null);
-      setTimeLeft(VOTE_DURATION_SECONDS);
-
-      // Update eliminated players list
-      setEliminatedPlayers(prev => [...prev, votedPlayer.user_id]);
-
-      // Check if current user was the one kicked
-      if (votedPlayer.user_id === profileId) {
-        setIsSpectator(true);
-      }
+      // Navigate to hint drop phase
+      navigate(`/hint/${roomCode}`, {
+        state: { playerName, isHost: true, profileId },
+      });
     } catch (error) {
       console.error("Error continuing game:", error);
     }
@@ -757,7 +764,7 @@ const Discussion = () => {
                   😢 An innocent was eliminated!
                 </div>
                 <p className="text-muted-foreground mb-6">
-                  The traitor is still among you. Continue the hunt!
+                  The traitor is still among you. Drop new hints and continue the hunt!
                 </p>
                 <Button
                   variant="neonCyan"
@@ -765,7 +772,7 @@ const Discussion = () => {
                   onClick={handleContinueGame}
                   disabled={!isHostNow}
                 >
-                  {isHostNow ? "Continue Voting" : "Waiting for host..."}
+                  {isHostNow ? "Continue to Hint Phase" : "Waiting for host..."}
                 </Button>
               </>
             )}
