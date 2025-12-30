@@ -28,6 +28,8 @@ const Discussion = () => {
   const [votedPlayer, setVotedPlayer] = useState(null);
   const [traitorId, setTraitorId] = useState(null);
   const [showResults, setShowResults] = useState(false);
+  const [isSpectator, setIsSpectator] = useState(false);
+  const [eliminatedPlayers, setEliminatedPlayers] = useState([]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -56,6 +58,16 @@ const Discussion = () => {
           .eq("room_id", roomData.id);
 
         setPlayers(participants || []);
+
+        // Check if current player is a spectator (eliminated)
+        const currentParticipant = participants?.find(p => p.user_id === profileId);
+        if (currentParticipant?.is_alive === false) {
+          setIsSpectator(true);
+        }
+
+        // Get list of eliminated players
+        const eliminated = participants?.filter(p => p.is_alive === false) || [];
+        setEliminatedPlayers(eliminated.map(p => p.user_id));
 
         const { data: hintsData } = await supabase
           .from("game_hints")
@@ -146,10 +158,12 @@ const Discussion = () => {
   useEffect(() => {
     if (!room || !players.length) return;
 
-    const totalPlayers = players.length;
+    // Only count active players (not spectators) for voting
+    const activePlayers = players.filter(p => p.is_alive !== false);
+    const totalActivePlayers = activePlayers.length;
     const totalVotes = votes.length;
 
-    if (totalVotes >= totalPlayers && totalPlayers > 0 && !votingComplete) {
+    if (totalVotes >= totalActivePlayers && totalActivePlayers > 0 && !votingComplete) {
       const voteCounts = {};
       votes.forEach(v => {
         voteCounts[v.voted_user_id] = (voteCounts[v.voted_user_id] || 0) + 1;
@@ -200,11 +214,65 @@ const Discussion = () => {
       )
       .subscribe();
 
+    // Subscribe to room status changes (for back to lobby)
+    const roomChannel = supabase
+      .channel(`room_status_${roomCode}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "game_rooms",
+        },
+        (payload) => {
+          if (payload.new?.room_code === roomCode?.toUpperCase() && payload.new?.status === "waiting") {
+            navigate(`/lobby/${roomCode}`, {
+              state: { playerName, isHost: payload.new?.host_id === profileId, profileId }
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    // Subscribe to participant changes (for spectator updates)
+    const participantsChannel = supabase
+      .channel(`participants_${roomCode}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "room_participants",
+        },
+        async () => {
+          // Refresh participants to get updated spectator status
+          const { data: participants } = await supabase
+            .from("room_participants")
+            .select("*, profiles!room_participants_user_id_fkey(username)")
+            .eq("room_id", room.id);
+
+          setPlayers(participants || []);
+
+          // Check if current player became a spectator (is_alive === false)
+          const currentParticipant = participants?.find(p => p.user_id === profileId);
+          if (currentParticipant?.is_alive === false) {
+            setIsSpectator(true);
+          }
+
+          // Update eliminated players list
+          const eliminated = participants?.filter(p => p.is_alive === false) || [];
+          setEliminatedPlayers(eliminated.map(p => p.user_id));
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(messagesChannel);
       supabase.removeChannel(votesChannel);
+      supabase.removeChannel(roomChannel);
+      supabase.removeChannel(participantsChannel);
     };
-  }, [room, roomCode]);
+  }, [room, roomCode, navigate, playerName, profileId]);
 
   useEffect(() => {
     if (timeLeft <= 0 || votingComplete) return;
@@ -229,8 +297,8 @@ const Discussion = () => {
   };
 
   const handleVote = async (votedForId) => {
-    if (!profileId || !room || myVote || votingComplete) {
-      console.log("Vote blocked:", { profileId, room: !!room, myVote, votingComplete });
+    if (!profileId || !room || myVote || votingComplete || isSpectator) {
+      console.log("Vote blocked:", { profileId, room: !!room, myVote, votingComplete, isSpectator });
       return;
     }
 
@@ -267,6 +335,72 @@ const Discussion = () => {
   };
 
   const isTraitor = votedPlayer?.user_id === traitorId;
+
+  // Handle going back to lobby (when traitor is caught)
+  const handleBackToLobby = async () => {
+    if (!room) return;
+
+    try {
+      // Reset game state - clear votes, hints, and reset room status
+      await supabase.from("game_votes").delete().eq("room_id", room.id);
+      await supabase.from("game_hints").delete().eq("room_id", room.id);
+      await supabase.from("chat_messages").delete().eq("room_id", room.id);
+      await supabase.from("round_secrets").delete().eq("room_id", room.id);
+
+      // Reset all participants to alive
+      await supabase
+        .from("room_participants")
+        .update({ is_alive: true })
+        .eq("room_id", room.id);
+
+      // Update room status to waiting
+      await supabase
+        .from("game_rooms")
+        .update({ status: "waiting", current_round: 1 })
+        .eq("id", room.id);
+
+      navigate(`/lobby/${roomCode}`, {
+        state: { playerName, isHost: room.host_id === profileId, profileId }
+      });
+    } catch (error) {
+      console.error("Error returning to lobby:", error);
+    }
+  };
+
+  // Handle continuing the game when an innocent is kicked
+  const handleContinueGame = async () => {
+    if (!room || !votedPlayer) return;
+
+    try {
+      // Mark the voted player as eliminated (spectator)
+      await supabase
+        .from("room_participants")
+        .update({ is_alive: false })
+        .eq("room_id", room.id)
+        .eq("user_id", votedPlayer.user_id);
+
+      // Clear votes for the next round of voting
+      await supabase.from("game_votes").delete().eq("room_id", room.id);
+
+      // Reset local state for next voting round
+      setVotes([]);
+      setMyVote(null);
+      setVotingComplete(false);
+      setShowResults(false);
+      setVotedPlayer(null);
+      setTimeLeft(120);
+
+      // Update eliminated players list
+      setEliminatedPlayers(prev => [...prev, votedPlayer.user_id]);
+
+      // Check if current user was the one kicked
+      if (votedPlayer.user_id === profileId) {
+        setIsSpectator(true);
+      }
+    } catch (error) {
+      console.error("Error continuing game:", error);
+    }
+  };
 
   if (showResults && votedPlayer) {
     return (
@@ -309,6 +443,7 @@ const Discussion = () => {
                     <span className={p.user_id === traitorId ? "text-red-400" : ""}>
                       {p.profiles?.username}
                       {p.user_id === traitorId && " (Traitor)"}
+                      {p.is_alive === false && " (Eliminated)"}
                     </span>
                     <span className="font-mono">{getVoteCount(p.user_id)} votes</span>
                   </div>
@@ -316,18 +451,36 @@ const Discussion = () => {
               </div>
             </div>
 
-            <div className={`text-2xl font-heading font-bold ${isTraitor ? "text-green-500" : "text-red-500"}`}>
-              {isTraitor ? "🎉 Civilians Win! 🎉" : "😈 Traitor Wins! 😈"}
-            </div>
-
-            <Button
-              variant="neonCyan"
-              size="lg"
-              className="mt-6"
-              onClick={() => navigate("/")}
-            >
-              Back to Home
-            </Button>
+            {isTraitor ? (
+              <>
+                <div className="text-2xl font-heading font-bold text-green-500 mb-6">
+                  🎉 Citizens Win! 🎉
+                </div>
+                <Button
+                  variant="neonCyan"
+                  size="lg"
+                  onClick={handleBackToLobby}
+                >
+                  Back to Lobby
+                </Button>
+              </>
+            ) : (
+              <>
+                <div className="text-xl font-heading font-bold text-yellow-500 mb-4">
+                  😢 An innocent was eliminated!
+                </div>
+                <p className="text-muted-foreground mb-6">
+                  The traitor is still among you. Continue the hunt!
+                </p>
+                <Button
+                  variant="neonCyan"
+                  size="lg"
+                  onClick={handleContinueGame}
+                >
+                  Continue Voting
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -430,11 +583,17 @@ const Discussion = () => {
                 <Vote className="w-5 h-5 text-secondary" />
                 Vote for the Traitor
                 <span className="ml-auto text-sm font-normal text-muted-foreground">
-                  {votes.length}/{players.length} voted
+                  {votes.length}/{players.filter(p => p.is_alive !== false).length} voted
                 </span>
               </h2>
 
-              {myVote ? (
+              {isSpectator ? (
+                <div className="text-center py-4 text-muted-foreground">
+                  <XCircle className="w-8 h-8 mx-auto mb-2 text-red-500" />
+                  <p className="font-bold text-red-400">You were eliminated</p>
+                  <p className="text-sm mt-2">You are now a spectator and cannot vote.</p>
+                </div>
+              ) : myVote ? (
                 <div className="text-center py-4 text-muted-foreground">
                   <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-500" />
                   You voted for <span className="font-bold text-primary">{getPlayerName(myVote)}</span>
@@ -443,14 +602,14 @@ const Discussion = () => {
               ) : (
                 <div className="grid grid-cols-2 gap-3">
                   {players
-                    .filter(p => p.user_id !== profileId)
+                    .filter(p => p.user_id !== profileId && p.is_alive !== false)
                     .map(p => (
                       <Button
                         key={p.user_id}
                         variant="outline"
                         className="h-auto py-3 flex flex-col items-center gap-1 hover:bg-red-500/20 hover:border-red-500/50"
                         onClick={() => handleVote(p.user_id)}
-                        disabled={!!myVote}
+                        disabled={!!myVote || isSpectator}
                       >
                         <span className="font-bold">{p.profiles?.username}</span>
                         <span className="text-xs text-muted-foreground">
