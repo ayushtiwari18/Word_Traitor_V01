@@ -94,14 +94,15 @@ const Discussion = () => {
         }
 
         const { data: secretsData } = await supabase
-          .from("round_secrets")
-          .select("user_id, is_traitor")
+          .from("room_participants")
+          .select("user_id, role")
           .eq("room_id", roomData.id)
-          .eq("round_number", roomData.current_round || 1);
+          .eq("role", "traitor");
 
-        const traitor = secretsData?.find(s => s.is_traitor);
+        const traitor = secretsData?.[0];
         if (traitor) {
           setTraitorId(traitor.user_id);
+          console.log("🔍 Traitor identified:", traitor.user_id);
         }
 
         await fetchVotes(roomData.id);
