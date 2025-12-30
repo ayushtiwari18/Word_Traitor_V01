@@ -69,7 +69,7 @@ const Whisper = () => {
 
         const { data: secretData, error: secretErr } = await supabase
           .from("round_secrets")
-          .select("*, word_pairs(*)")
+          .select("secret_word")
           .eq("room_id", roomData.id)
           .eq("user_id", profileId)
           .eq("round_number", roomData.current_round || 1)
@@ -79,12 +79,8 @@ const Whisper = () => {
           console.log("No secret assigned yet, waiting...", secretErr);
         } else {
           setSecretWord(secretData);
-          if (secretData.word_pairs) {
-            const desc = secretData.is_traitor
-              ? secretData.word_pairs.traitor_word_description
-              : secretData.word_pairs.civilian_word_description;
-            setWordDescription(desc);
-          }
+          // Word descriptions depend on word_pairs relation; keep optional.
+          setWordDescription(null);
         }
 
         setLoading(false);
@@ -198,16 +194,15 @@ const Whisper = () => {
     }
 
     try {
-      // Check if this player is the traitor
-      const { data: secretData } = await supabase
-        .from("round_secrets")
-        .select("is_traitor")
+      // Check if this player is the traitor (role assigned by start-round)
+      const { data: participantData } = await supabase
+        .from("room_participants")
+        .select("role")
         .eq("room_id", room.id)
         .eq("user_id", profileId)
-        .eq("round_number", room.current_round || 1)
         .single();
 
-      const isTraitor = secretData?.is_traitor || false;
+      const isTraitor = participantData?.role === "traitor";
 
       // Delete participant from room
       await supabase
