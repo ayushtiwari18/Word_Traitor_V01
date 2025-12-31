@@ -72,6 +72,7 @@ serve(async (req) => {
     
     // 3. Select Word Pair
     let selectedPair = null;
+    let wordSource: "db" | "seeded_fallback" | "fallback" = "fallback";
     
     // Try to fetch from DB with filters
     try {
@@ -96,6 +97,7 @@ serve(async (req) => {
         } else if (filteredPairs && filteredPairs.length > 0) {
           selectedPair =
             filteredPairs[Math.floor(Math.random() * filteredPairs.length)];
+          wordSource = "db";
         }
       }
 
@@ -107,8 +109,30 @@ serve(async (req) => {
           console.error("Error querying word_pairs:", anyErr);
         } else if (anyPairs && anyPairs.length > 0) {
           selectedPair = anyPairs[Math.floor(Math.random() * anyPairs.length)];
+          wordSource = "db";
         } else {
-          console.warn("⚠️ No word_pairs found in DB. Using fallback.");
+          console.warn("⚠️ No word_pairs found in DB.");
+
+          // If the table exists but is empty, auto-seed with fallback words once.
+          // This keeps your source of truth as `word_pairs` without requiring a manual seed step.
+          const seedRows = FALLBACK_WORDS.map((w) => ({
+            category: w.difficulty,
+            civilian_word: w.civilian_word,
+            civilian_word_description: null,
+            traitor_word: w.traitor_word,
+            traitor_word_description: null,
+          }));
+
+          const { error: seedErr } = await supabase.from("word_pairs").insert(seedRows);
+          if (seedErr) {
+            console.warn("⚠️ Could not seed word_pairs; will use fallback:", seedErr);
+          } else {
+            const { data: seededPairs } = await baseQuery.limit(200);
+            if (seededPairs && seededPairs.length > 0) {
+              selectedPair = seededPairs[Math.floor(Math.random() * seededPairs.length)];
+              wordSource = "seeded_fallback";
+            }
+          }
         }
       }
     } catch (e) {
@@ -121,6 +145,7 @@ serve(async (req) => {
         const filteredFallback = FALLBACK_WORDS.filter(w => w.difficulty === difficulty);
         const pool = filteredFallback.length > 0 ? filteredFallback : FALLBACK_WORDS;
         selectedPair = pool[Math.floor(Math.random() * pool.length)];
+      wordSource = "fallback";
     }
 
     const civilianWord = selectedPair.civilian_word;
@@ -180,6 +205,9 @@ serve(async (req) => {
         roundNumber,
         civilianWord,
         traitorWord,
+        wordSource,
+        wordPairId: selectedPair?.id || null,
+        wordCategory: selectedPair?.category || null,
         numPlayers: participants.length,
         numTraitors: traitorIds.length,
       }),
