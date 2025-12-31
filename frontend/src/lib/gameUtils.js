@@ -5,11 +5,6 @@ import { supabase } from "@/lib/supabaseClient";
  * - Deletes the participant record.
  * - If the player was the HOST, promotes the next available player to host.
  * - If no players remain, deletes the room.
- * 
- * @param {string} roomId - The UUID of the room
- * @param {string} profileId - The UUID of the user leaving
- * @param {boolean} isHost - Whether the leaver is currently the host
- * @returns {Promise<void>}
  */
 export const leaveGameRoom = async (roomId, profileId, isHost) => {
   if (!roomId || !profileId) return;
@@ -57,5 +52,56 @@ export const leaveGameRoom = async (roomId, profileId, isHost) => {
     }
   } catch (err) {
     console.error("Critical error in leaveGameRoom:", err);
+  }
+};
+
+/**
+ * Promotes the oldest participant to be the new host.
+ * Used when Presence detects the host has disconnected properly or improperly.
+ */
+export const promoteNewHost = async (roomId, excludeUserId = null) => {
+  try {
+    // Fetch all participants
+    const { data: players } = await supabase
+      .from("room_participants")
+      .select("user_id, created_at")
+      .eq("room_id", roomId)
+      .neq("user_id", excludeUserId || "00000000-0000-0000-0000-000000000000") // Exclude the old host if known
+      .order("created_at", { ascending: true });
+
+    if (!players || players.length === 0) {
+      console.log("No candidates for host promotion. Room might be empty.");
+      // Optional: Delete room if truly empty, but risky if fetch failed
+      return;
+    }
+
+    const newHost = players[0];
+    console.log(`👑 Auto-promoting new host via Presence: ${newHost.user_id}`);
+
+    await supabase
+      .from("game_rooms")
+      .update({ host_id: newHost.user_id })
+      .eq("id", roomId);
+
+  } catch (err) {
+    console.error("Error promoting new host:", err);
+  }
+};
+
+/**
+ * Removes a player from the room (Ghost Cleanup).
+ * Called by the Host when they detect a stale presence.
+ */
+export const removeGhostPlayer = async (roomId, userId) => {
+  if (!roomId || !userId) return;
+  try {
+    console.log(`👻 Reaper: Removing ghost player ${userId}`);
+    await supabase
+      .from("room_participants")
+      .delete()
+      .eq("room_id", roomId)
+      .eq("user_id", userId);
+  } catch (err) {
+    console.error("Error removing ghost:", err);
   }
 };
