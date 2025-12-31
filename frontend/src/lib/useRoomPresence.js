@@ -49,12 +49,6 @@ export const useRoomPresence = (roomCode, roomId, profileId, isHost) => {
           console.warn(`⚠️ Host ${currentHostId} is offline! Initiating transfer.`);
           
           // 3. ELECTION: The oldest remaining online player performs the update
-          // This prevents 5 clients from spamming the DB at once.
-          // We can't easily know who is "oldest" without fetching participant dates, 
-          // but we can just let everyone try to run `promoteNewHost`. 
-          // `promoteNewHost` will pick the oldest participant from the DB.
-          // To reduce spam, we can add a random delay.
-          
           const randomDelay = Math.floor(Math.random() * 2000);
           setTimeout(() => {
              promoteNewHost(roomId, currentHostId);
@@ -64,19 +58,32 @@ export const useRoomPresence = (roomCode, roomId, profileId, isHost) => {
         // LOGIC: Ghost Cleanup (Host Only)
         // If I am the host (and I am online, obviously), I should check if there are DB rows for users who are NOT online.
         if (isHost) {
-          // Fetch DB participants
+          // Fetch DB participants with their joined time
           const { data: participants } = await supabase
              .from("room_participants")
-             .select("user_id")
+             .select("user_id, created_at")
              .eq("room_id", roomId);
           
           if (participants) {
-            const dbUserIds = participants.map(p => p.user_id);
-            const ghosts = dbUserIds.filter(id => !onlineUserIds.includes(id));
+            const now = Date.now();
+            const GRACE_PERIOD_MS = 10000; // 10 seconds grace period
+
+            const ghosts = participants.filter(p => {
+              // Condition 1: Not in presence list
+              const isOffline = !onlineUserIds.includes(p.user_id);
+              
+              // Condition 2: Joined longer ago than grace period
+              const joinedAt = new Date(p.created_at).getTime();
+              const isOldEnough = (now - joinedAt) > GRACE_PERIOD_MS;
+
+              return isOffline && isOldEnough;
+            });
             
             if (ghosts.length > 0) {
-              console.log(`👻 Detected ${ghosts.length} ghosts. Cleaning up...`, ghosts);
-              ghosts.forEach(ghostId => removeGhostPlayer(roomId, ghostId));
+              console.log(`👻 Detected ${ghosts.length} STALE ghosts. Cleaning up...`, ghosts);
+              ghosts.forEach(g => removeGhostPlayer(roomId, g.user_id));
+            } else {
+              console.log("👻 No stale ghosts found (some might be in grace period).");
             }
           }
         }
