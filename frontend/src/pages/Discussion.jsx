@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabaseClient";
 import { leaveGameRoom } from "@/lib/gameUtils";
+import { useRoomPresence } from "@/lib/useRoomPresence";
 
 const Discussion = () => {
   const VOTE_DURATION_SECONDS = 120;
@@ -51,6 +52,9 @@ const Discussion = () => {
   }, [serverOffsetMs]);
 
   const isHostNow = !!(room?.host_id && profileId && room.host_id === profileId);
+
+  // 📡 PRESENCE HOOK
+  useRoomPresence(roomCode, room?.id, profileId, isHostNow);
 
   const syncServerTime = async () => {
     try {
