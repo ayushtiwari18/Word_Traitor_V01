@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabaseClient";
 import TraitorLeftModal from "@/components/TraitorLeftModal";
 import { leaveGameRoom } from "@/lib/gameUtils";
+import { useRoomPresence } from "@/lib/useRoomPresence";
 
 const Whisper = () => {
   const REVEAL_DURATION_SECONDS = 10;
@@ -37,6 +38,9 @@ const Whisper = () => {
   const serverOffsetRef = useRef(0);
 
   const isHostNow = !!(room?.host_id && profileId && room.host_id === profileId);
+
+  // 📡 PRESENCE HOOK
+  useRoomPresence(roomCode, room?.id, profileId, isHostNow);
 
   useEffect(() => {
     serverOffsetRef.current = serverOffsetMs;
