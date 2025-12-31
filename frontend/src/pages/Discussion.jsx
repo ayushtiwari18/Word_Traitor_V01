@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
-import { MessageCircle, Send, Clock, Users, Vote, CheckCircle, XCircle, Trophy, Skull } from "lucide-react";
+import { MessageCircle, Send, Clock, Users, Vote, CheckCircle, XCircle, Trophy, Skull, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabaseClient";
+import { leaveGameRoom } from "@/lib/gameUtils";
 
 const Discussion = () => {
   const VOTE_DURATION_SECONDS = 120;
@@ -219,7 +220,6 @@ const Discussion = () => {
           setHints([]);
         }
 
-        // RLS DISABLED: Host/Everyone can see roles to check traitor
         const { data: secretsData } = await supabase
           .from("room_participants")
           .select("user_id, role")
@@ -407,6 +407,9 @@ const Discussion = () => {
         (payload) => {
           if (payload.new?.room_code !== roomCode?.toUpperCase()) return;
 
+          // Update local room state immediately to handle host changes
+          setRoom((prev) => ({ ...(prev || {}), ...payload.new }));
+
           if (payload.new?.status === "waiting") {
             navigate(`/lobby/${roomCode}`, {
               state: { playerName, isHost: payload.new?.host_id === profileId, profileId },
@@ -421,7 +424,6 @@ const Discussion = () => {
           }
 
           if (payload.new?.status === "finished") {
-            setRoom((prev) => ({ ...(prev || {}), status: "finished", settings: payload.new?.settings }));
             if (payload.new?.settings?.gameResult) {
               setGameResult(payload.new.settings.gameResult);
             }
@@ -510,6 +512,13 @@ const Discussion = () => {
 
     if (!error) {
       setMyVote(votedForId);
+    }
+  };
+
+  const handleExitGame = async () => {
+    if (room && profileId) {
+        await leaveGameRoom(room.id, profileId, isHostNow);
+        navigate("/");
     }
   };
 
@@ -626,7 +635,20 @@ const Discussion = () => {
     const citizensWon = gameResult.winner === "citizens";
 
     return (
-      <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center">
+      <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center relative">
+          {/* Exit Button - Top Left */}
+          <div className="absolute top-4 left-4 z-10">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2"
+            onClick={handleExitGame}
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Exit
+          </Button>
+        </div>
+
         <div className="container max-w-lg mx-auto px-4">
           <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-8 shadow-xl animate-fade-in-up text-center">
             <div className={`w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center ${
@@ -671,7 +693,20 @@ const Discussion = () => {
 
   if (showResults && votedPlayer) {
     return (
-      <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center">
+      <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center relative">
+         {/* Exit Button - Top Left */}
+         <div className="absolute top-4 left-4 z-10">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2"
+            onClick={handleExitGame}
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Exit
+          </Button>
+        </div>
+
         <div className="container max-w-lg mx-auto px-4">
           <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-8 shadow-xl animate-fade-in-up text-center">
             <div className={`w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center ${
@@ -755,8 +790,21 @@ const Discussion = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background gradient-mesh">
-      <div className="container max-w-4xl mx-auto px-4 py-6">
+    <div className="min-h-screen bg-background gradient-mesh relative">
+         {/* Exit Button - Top Left */}
+         <div className="absolute top-4 left-4 z-10">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2"
+            onClick={handleExitGame}
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Exit
+          </Button>
+        </div>
+
+      <div className="container max-w-4xl mx-auto px-4 py-6 pt-16">
         <div className="flex items-center justify-between mb-6 animate-fade-in-up">
           <h1 className="text-2xl font-heading font-bold flex items-center gap-2">
             <MessageCircle className="w-6 h-6 text-primary" />
