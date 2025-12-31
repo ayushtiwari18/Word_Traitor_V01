@@ -51,40 +51,15 @@ export const useRoomPresence = (roomCode, roomId, profileId, isHost) => {
           // 3. ELECTION: The oldest remaining online player performs the update
           const randomDelay = Math.floor(Math.random() * 2000);
           setTimeout(() => {
-             promoteNewHost(roomId, currentHostId);
+             // Pass onlineUserIds to ensure we pick an online host
+             promoteNewHost(roomId, currentHostId, onlineUserIds);
           }, randomDelay);
         }
 
         // LOGIC: Ghost Cleanup (DISABLED TEMPORARILY)
-        // We are disabling this to prevent players from disappearing due to race conditions.
         /*
         if (isHost) {
-          // Fetch DB participants with their joined time
-          const { data: participants } = await supabase
-             .from("room_participants")
-             .select("user_id, created_at")
-             .eq("room_id", roomId);
-          
-          if (participants) {
-            const now = Date.now();
-            const GRACE_PERIOD_MS = 10000; // 10 seconds grace period
-
-            const ghosts = participants.filter(p => {
-              // Condition 1: Not in presence list
-              const isOffline = !onlineUserIds.includes(p.user_id);
-              
-              // Condition 2: Joined longer ago than grace period
-              const joinedAt = new Date(p.created_at).getTime();
-              const isOldEnough = (now - joinedAt) > GRACE_PERIOD_MS;
-
-              return isOffline && isOldEnough;
-            });
-            
-            if (ghosts.length > 0) {
-              console.log(`👻 Detected ${ghosts.length} STALE ghosts. Cleaning up...`, ghosts);
-              ghosts.forEach(g => removeGhostPlayer(roomId, g.user_id));
-            }
-          }
+          // ... (Ghost cleanup logic) ...
         }
         */
       })
