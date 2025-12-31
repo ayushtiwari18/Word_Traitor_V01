@@ -9,7 +9,7 @@ import Whisper from "./pages/Whisper";
 import HintDrop from "./pages/HintDrop";
 import Discussion from "./pages/Discussion";
 import Game from "./pages/Game";
-import Results from "./pages/Results";
+// import Results from "./pages/Results";
 import Settings from "./pages/Settings";
 import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
@@ -31,7 +31,7 @@ const App = () => (
           <Route path="/discussion/:roomCode" element={<Discussion />} />
 
           <Route path="/game" element={<Game />} />
-          <Route path="/results" element={<Results />} />
+          {/* <Route path="/results" element={<Results />} /> */}
           <Route path="/settings" element={<Settings />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/help" element={<Settings />} />

@@ -4,8 +4,12 @@ import { Eye, EyeOff, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabaseClient";
 import TraitorLeftModal from "@/components/TraitorLeftModal";
+import { leaveGameRoom } from "@/lib/gameUtils";
+import { useRoomPresence } from "@/lib/useRoomPresence";
 
 const Whisper = () => {
+  const REVEAL_DURATION_SECONDS = 10;
+
   const { roomCode } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -26,12 +30,71 @@ const Whisper = () => {
   const [wordDescription, setWordDescription] = useState(null);
   const [loading, setLoading] = useState(true);
   const [room, setRoom] = useState(null);
-  const [countdown, setCountdown] = useState(10);
-  const countdownRef = useRef(null);
+  const [countdown, setCountdown] = useState(REVEAL_DURATION_SECONDS);
   const hasNavigated = useRef(false);
   const [showTraitorLeftModal, setShowTraitorLeftModal] = useState(false);
 
+  const [serverOffsetMs, setServerOffsetMs] = useState(0);
+  const serverOffsetRef = useRef(0);
+
   const isHostNow = !!(room?.host_id && profileId && room.host_id === profileId);
+
+  // 📡 PRESENCE HOOK
+  useRoomPresence(roomCode, room?.id, profileId, isHostNow);
+
+  useEffect(() => {
+    serverOffsetRef.current = serverOffsetMs;
+  }, [serverOffsetMs]);
+
+  const syncServerTime = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("server-time", {
+        body: {},
+      });
+
+      if (error) {
+        console.warn("server-time error:", error);
+        return;
+      }
+
+      const serverIso = data?.serverTime;
+      const serverMs = new Date(serverIso).getTime();
+      if (!serverIso || Number.isNaN(serverMs)) return;
+
+      setServerOffsetMs(serverMs - Date.now());
+    } catch (e) {
+      console.warn("server-time invoke failed:", e);
+    }
+  };
+
+  const getServerNowIso = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("server-time", {
+        body: {},
+      });
+      if (error) throw error;
+      if (data?.serverTime) return data.serverTime;
+    } catch {
+      // fall back
+    }
+    return new Date().toISOString();
+  };
+
+  const computeTimeLeft = (startedAtIso, durationSeconds) => {
+    if (!startedAtIso) return durationSeconds;
+    const startedAtMs = new Date(startedAtIso).getTime();
+    if (Number.isNaN(startedAtMs)) return durationSeconds;
+    const nowMs = Date.now() + (serverOffsetRef.current || 0);
+    const elapsedSeconds = Math.floor((nowMs - startedAtMs) / 1000);
+    return Math.max(0, durationSeconds - elapsedSeconds);
+  };
+
+  useEffect(() => {
+    syncServerTime();
+    const interval = setInterval(() => syncServerTime(), 30000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -59,6 +122,29 @@ const Whisper = () => {
 
         const isHostFromRoom = !!(roomData.host_id && profileId && roomData.host_id === profileId);
 
+        // Ensure reveal phase start is persisted once (host only)
+        if (!roomData?.settings?.wordRevealStartedAt && isHostFromRoom) {
+          const startedAt = await getServerNowIso();
+          const nextSettings = {
+            ...(roomData.settings || {}),
+            wordRevealStartedAt: startedAt,
+          };
+
+          await supabase
+            .from("game_rooms")
+            .update({ settings: nextSettings })
+            .eq("id", roomData.id);
+
+          setRoom((prev) => ({ ...(prev || roomData), settings: nextSettings }));
+        }
+
+        setCountdown(
+          computeTimeLeft(
+            roomData?.settings?.wordRevealStartedAt,
+            REVEAL_DURATION_SECONDS
+          )
+        );
+
         if (roomData.status === "hint_drop" && !hasNavigated.current) {
           hasNavigated.current = true;
           navigate(`/hint/${roomCode}`, {
@@ -69,7 +155,7 @@ const Whisper = () => {
 
         const { data: secretData, error: secretErr } = await supabase
           .from("round_secrets")
-          .select("*, word_pairs(*)")
+          .select("secret_word")
           .eq("room_id", roomData.id)
           .eq("user_id", profileId)
           .eq("round_number", roomData.current_round || 1)
@@ -79,12 +165,7 @@ const Whisper = () => {
           console.log("No secret assigned yet, waiting...", secretErr);
         } else {
           setSecretWord(secretData);
-          if (secretData.word_pairs) {
-            const desc = secretData.is_traitor
-              ? secretData.word_pairs.traitor_word_description
-              : secretData.word_pairs.civilian_word_description;
-            setWordDescription(desc);
-          }
+          setWordDescription(null);
         }
 
         setLoading(false);
@@ -120,11 +201,11 @@ const Whisper = () => {
         },
         (payload) => {
           console.log("🎮 Room status changed:", payload.new?.status);
-          if (
-            payload.new?.room_code === roomCode?.toUpperCase() &&
-            payload.new?.status === "hint_drop" &&
-            !hasNavigated.current
-          ) {
+          if (payload.new?.room_code !== roomCode?.toUpperCase()) return;
+
+          setRoom(payload.new);
+
+          if (payload.new?.status === "hint_drop" && !hasNavigated.current) {
             hasNavigated.current = true;
             const isHostFromPayload = !!(
               payload.new?.host_id &&
@@ -145,51 +226,96 @@ const Whisper = () => {
     };
   }, [roomCode, navigate, playerName, isHost, profileId]);
 
-  // Countdown after reveal - auto move to hint phase when countdown reaches 0
+  // Keep countdown synced to persisted start time
   useEffect(() => {
-    if (revealed && countdown > 0) {
-      countdownRef.current = setTimeout(
-        () => setCountdown(countdown - 1),
-        1000
-      );
-      return () => clearTimeout(countdownRef.current);
-    }
+    if (!room?.settings?.wordRevealStartedAt) return;
 
-    if (
-      revealed &&
-      countdown === 0 &&
-      isHostNow &&
-      room &&
-      !hasNavigated.current
-    ) {
-      const moveToHintPhase = async () => {
-        console.log("⏰ Countdown ended, moving to hint phase...");
+    const tick = () => {
+      setCountdown(
+        computeTimeLeft(
+          room.settings.wordRevealStartedAt,
+          REVEAL_DURATION_SECONDS
+        )
+      );
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [room?.settings?.wordRevealStartedAt]);
+
+  // If host changes mid-reveal, ensure the reveal start time gets persisted.
+  // Without this, a new host can be elected but never sets `wordRevealStartedAt`,
+  // leaving everyone stuck on the reveal screen.
+  useEffect(() => {
+    if (!room || !isHostNow) return;
+    if (room?.settings?.wordRevealStartedAt) return;
+
+    const persistRevealStart = async () => {
+      try {
+        const startedAt = await getServerNowIso();
+        const nextSettings = {
+          ...(room.settings || {}),
+          wordRevealStartedAt: startedAt,
+        };
+
         const { error } = await supabase
           .from("game_rooms")
-          .update({ status: "hint_drop" })
+          .update({ settings: nextSettings })
+          .eq("id", room.id);
+
+        if (error) {
+          console.error("Error persisting wordRevealStartedAt:", error);
+          return;
+        }
+
+        setRoom((prev) => ({ ...(prev || room), settings: nextSettings }));
+        setCountdown(computeTimeLeft(startedAt, REVEAL_DURATION_SECONDS));
+      } catch (e) {
+        console.error("Error persisting reveal start:", e);
+      }
+    };
+
+    persistRevealStart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room?.id, isHostNow, room?.settings?.wordRevealStartedAt]);
+
+  // Host advances everyone to hint phase when timer ends (synced)
+  useEffect(() => {
+    if (!room || !isHostNow || hasNavigated.current) return;
+    if (countdown > 0) return;
+
+    const moveToHintPhase = async () => {
+      try {
+        console.log("⏰ Reveal timer ended, moving to hint phase...");
+        const hintStartedAt = await getServerNowIso();
+        const { error } = await supabase
+          .from("game_rooms")
+          .update({
+            status: "hint_drop",
+            settings: {
+              ...(room.settings || {}),
+              hintStartedAt,
+            },
+          })
           .eq("id", room.id);
 
         if (error) {
           console.error("Error moving to hint phase:", error);
-        } else {
-          hasNavigated.current = true;
-          navigate(`/hint/${roomCode}`, {
-            state: { playerName, isHost: true, profileId },
-          });
+          return;
         }
-      };
-      moveToHintPhase();
-    }
-  }, [
-    revealed,
-    countdown,
-    isHostNow,
-    room,
-    roomCode,
-    navigate,
-    playerName,
-    profileId,
-  ]);
+
+        hasNavigated.current = true;
+        navigate(`/hint/${roomCode}`, {
+          state: { playerName, isHost: true, profileId },
+        });
+      } catch (e) {
+        console.error("Error moving to hint phase:", e);
+      }
+    };
+
+    moveToHintPhase();
+  }, [countdown, isHostNow, room, roomCode, navigate, playerName, profileId]);
 
   const handleLeaveGame = async () => {
     if (!profileId || !room) {
@@ -199,24 +325,16 @@ const Whisper = () => {
 
     try {
       // Check if this player is the traitor
-      const { data: secretData } = await supabase
-        .from("round_secrets")
-        .select("is_traitor")
+      const { data: participantData } = await supabase
+        .from("room_participants")
+        .select("role")
         .eq("room_id", room.id)
         .eq("user_id", profileId)
-        .eq("round_number", room.current_round || 1)
         .single();
 
-      const isTraitor = secretData?.is_traitor || false;
+      const isTraitor = participantData?.role === "traitor";
 
-      // Delete participant from room
-      await supabase
-        .from("room_participants")
-        .delete()
-        .eq("room_id", room.id)
-        .eq("user_id", profileId);
-
-      // If traitor left, notify other players by updating room status
+      // If traitor left, notify others
       if (isTraitor) {
         await supabase
           .from("game_rooms")
@@ -226,6 +344,10 @@ const Whisper = () => {
           })
           .eq("id", room.id);
       }
+
+      // 🛡️ USE ROBUST LEAVE LOGIC
+      // (Pass isHostNow which is computed from current room state)
+      await leaveGameRoom(room.id, profileId, isHostNow);
 
       localStorage.removeItem(`profile_id_${roomCode?.toUpperCase()}`);
       navigate("/");

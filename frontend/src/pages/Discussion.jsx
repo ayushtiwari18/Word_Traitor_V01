@@ -1,11 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
-import { MessageCircle, Send, Clock, Users, Vote, CheckCircle, XCircle, Trophy, Skull } from "lucide-react";
+import { MessageCircle, Send, Clock, Users, Vote, CheckCircle, XCircle, Trophy, Skull, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabaseClient";
+import { leaveGameRoom } from "@/lib/gameUtils";
+import { useRoomPresence } from "@/lib/useRoomPresence";
 
 const Discussion = () => {
+  const VOTE_DURATION_SECONDS = 120;
+
   const { roomCode } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -20,7 +24,7 @@ const Discussion = () => {
   const [hints, setHints] = useState([]);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
-  const [timeLeft, setTimeLeft] = useState(120);
+  const [timeLeft, setTimeLeft] = useState(VOTE_DURATION_SECONDS);
   
   const [myVote, setMyVote] = useState(null);
   const [votes, setVotes] = useState([]);
@@ -30,6 +34,121 @@ const Discussion = () => {
   const [showResults, setShowResults] = useState(false);
   const [isSpectator, setIsSpectator] = useState(false);
   const [eliminatedPlayers, setEliminatedPlayers] = useState([]);
+  const [voteSession, setVoteSession] = useState(1);
+  const [gameResult, setGameResult] = useState(null);
+  const [serverOffsetMs, setServerOffsetMs] = useState(0);
+
+  const voteSessionRef = useRef(1);
+  const lastVoteSessionRef = useRef(null);
+  const endingInProgressRef = useRef(false);
+  const serverOffsetRef = useRef(0);
+
+  useEffect(() => {
+    voteSessionRef.current = voteSession;
+  }, [voteSession]);
+
+  useEffect(() => {
+    serverOffsetRef.current = serverOffsetMs;
+  }, [serverOffsetMs]);
+
+  const isHostNow = !!(room?.host_id && profileId && room.host_id === profileId);
+
+  // 📡 PRESENCE HOOK
+  useRoomPresence(roomCode, room?.id, profileId, isHostNow);
+
+  const syncServerTime = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("server-time", {
+        body: {},
+      });
+
+      if (error) {
+        console.warn("server-time error:", error);
+        return;
+      }
+
+      const serverIso = data?.serverTime;
+      const serverMs = new Date(serverIso).getTime();
+      if (!serverIso || Number.isNaN(serverMs)) return;
+
+      const offset = serverMs - Date.now();
+      setServerOffsetMs(offset);
+    } catch (e) {
+      console.warn("server-time invoke failed:", e);
+    }
+  };
+
+  useEffect(() => {
+    syncServerTime();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const computeTimeLeft = (startedAtIso) => {
+    if (!startedAtIso) return VOTE_DURATION_SECONDS;
+    const startedAtMs = new Date(startedAtIso).getTime();
+    if (Number.isNaN(startedAtMs)) return VOTE_DURATION_SECONDS;
+    const nowMs = Date.now() + (serverOffsetRef.current || 0);
+    const elapsedSeconds = Math.floor((nowMs - startedAtMs) / 1000);
+    return Math.max(0, VOTE_DURATION_SECONDS - elapsedSeconds);
+  };
+
+  const getServerNowIso = async () => {
+    try {
+      const { data, error } = await supabase.functions.invoke("server-time", {
+        body: {},
+      });
+      if (error) throw error;
+      if (data?.serverTime) return data.serverTime;
+    } catch {
+      // fall back
+    }
+    return new Date().toISOString();
+  };
+
+  const ensureVoteSessionStartedAt = async (roomData, session, isHostFromRoomData) => {
+    if (!roomData?.id) return;
+    if (!isHostFromRoomData) return;
+    if (roomData?.settings?.voteSessionStartedAt) return;
+
+    try {
+      const startedAt = await getServerNowIso();
+      await supabase
+        .from("game_rooms")
+        .update({
+          settings: {
+            ...(roomData.settings || {}),
+            voteSession: session ?? 1,
+            voteSessionStartedAt: startedAt,
+          },
+        })
+        .eq("id", roomData.id);
+    } catch (error) {
+      console.error("Error setting voteSessionStartedAt:", error);
+    }
+  };
+
+  const endGame = async (result) => {
+    if (!room || !isHostNow || endingInProgressRef.current) return;
+
+    try {
+      endingInProgressRef.current = true;
+      const nextSettings = {
+        ...(room.settings || {}),
+        gameResult: result,
+      };
+
+      await supabase
+        .from("game_rooms")
+        .update({ status: "finished", settings: nextSettings })
+        .eq("id", room.id);
+
+      setGameResult(result);
+    } catch (error) {
+      console.error("Error ending game:", error);
+    } finally {
+      // keep true to avoid repeated writes
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -52,6 +171,20 @@ const Discussion = () => {
         }
         setRoom(roomData);
 
+        const isHostFromRoomData = !!(roomData.host_id && profileId && roomData.host_id === profileId);
+
+        const nextVoteSession = roomData?.settings?.voteSession ?? 1;
+        setVoteSession(nextVoteSession);
+        if (roomData?.settings?.gameResult) {
+          setGameResult(roomData.settings.gameResult);
+        }
+
+        // Restore timer from persisted start time
+        setTimeLeft(computeTimeLeft(roomData?.settings?.voteSessionStartedAt));
+
+        // Ensure there's a start time persisted once (host only)
+        await ensureVoteSessionStartedAt(roomData, nextVoteSession, isHostFromRoomData);
+
         const { data: participants } = await supabase
           .from("room_participants")
           .select("*, profiles!room_participants_user_id_fkey(username)")
@@ -59,13 +192,11 @@ const Discussion = () => {
 
         setPlayers(participants || []);
 
-        // Check if current player is a spectator (eliminated)
         const currentParticipant = participants?.find(p => p.user_id === profileId);
         if (currentParticipant?.is_alive === false) {
           setIsSpectator(true);
         }
 
-        // Get list of eliminated players
         const eliminated = participants?.filter(p => p.is_alive === false) || [];
         setEliminatedPlayers(eliminated.map(p => p.user_id));
 
@@ -102,10 +233,19 @@ const Discussion = () => {
         const traitor = secretsData?.[0];
         if (traitor) {
           setTraitorId(traitor.user_id);
-          console.log("🔍 Traitor identified:", traitor.user_id);
         }
 
-        await fetchVotes(roomData.id);
+        if (lastVoteSessionRef.current !== null && lastVoteSessionRef.current !== nextVoteSession) {
+          setVotes([]);
+          setMyVote(null);
+          setVotingComplete(false);
+          setShowResults(false);
+          setVotedPlayer(null);
+          setTimeLeft(computeTimeLeft(roomData?.settings?.voteSessionStartedAt));
+        }
+        lastVoteSessionRef.current = nextVoteSession;
+
+        await fetchVotes(roomData.id, nextVoteSession);
         fetchMessages(roomData.id);
       } catch (error) {
         console.error("Error:", error);
@@ -115,15 +255,16 @@ const Discussion = () => {
     fetchData();
   }, [roomCode, navigate, profileId]);
 
-  const fetchVotes = async (roomId) => {
+  const fetchVotes = async (roomId, session = voteSessionRef.current) => {
     const { data: votesData } = await supabase
       .from("game_votes")
       .select("*")
-      .eq("room_id", roomId);
+      .eq("room_id", roomId)
+      .eq("round_number", session);
 
     setVotes(votesData || []);
 
-    const myExistingVote = votesData?.find(v => v.voter_id === profileId);
+    const myExistingVote = (votesData || []).find(v => v.voter_id === profileId);
     if (myExistingVote) {
       setMyVote(myExistingVote.voted_user_id);
     }
@@ -156,35 +297,78 @@ const Discussion = () => {
     }
   };
 
+  // ✅ VOTE TALLY & ELIMINATION LOGIC
   useEffect(() => {
     if (!room || !players.length) return;
 
-    // Only count active players (not spectators) for voting
     const activePlayers = players.filter(p => p.is_alive !== false);
     const totalActivePlayers = activePlayers.length;
     const totalVotes = votes.length;
 
+    // Check if voting is complete (everyone has voted)
     if (totalVotes >= totalActivePlayers && totalActivePlayers > 0 && !votingComplete) {
       const voteCounts = {};
       votes.forEach(v => {
         voteCounts[v.voted_user_id] = (voteCounts[v.voted_user_id] || 0) + 1;
       });
 
+      // Find max votes
       let maxVotes = 0;
-      let mostVoted = null;
-      Object.entries(voteCounts).forEach(([odId, count]) => {
-        if (count > maxVotes) {
-          maxVotes = count;
-          mostVoted = odId;
-        }
+      Object.values(voteCounts).forEach(count => {
+        if (count > maxVotes) maxVotes = count;
       });
 
-      const votedPlayerData = players.find(p => p.user_id === mostVoted);
+      // Find all candidates with maxVotes (handling ties)
+      const topCandidates = Object.keys(voteCounts).filter(id => voteCounts[id] === maxVotes);
+
+      let eliminatedUserId = null;
+
+      if (topCandidates.length === 1) {
+        // Clear winner
+        eliminatedUserId = topCandidates[0];
+      } else {
+        // TIE: Randomly pick one from the top candidates
+        const randomIndex = Math.floor(Math.random() * topCandidates.length);
+        eliminatedUserId = topCandidates[randomIndex];
+        console.log("🎲 Tie detected! Randomly eliminating:", eliminatedUserId);
+      }
+
+      const votedPlayerData = players.find(p => p.user_id === eliminatedUserId);
       setVotedPlayer(votedPlayerData);
       setVotingComplete(true);
       setShowResults(true);
+
+      // If traitor is voted out, end game immediately (host persists for everyone)
+      if (votedPlayerData?.user_id && votedPlayerData.user_id === traitorId) {
+        endGame({
+          winner: "citizens",
+          reason: "traitor_voted_out",
+          traitorId,
+          votedOutId: votedPlayerData.user_id,
+          voteSession: voteSessionRef.current,
+        });
+      }
     }
-  }, [votes, players, room, votingComplete]);
+  }, [votes, players, room, votingComplete, traitorId]);
+
+  // ✅ GAME OVER LOGIC (2 Players Left)
+  useEffect(() => {
+    if (!room || !traitorId || !players.length) return;
+    if (!isHostNow) return;
+    if (room.status === "finished") return;
+
+    const alivePlayers = players.filter(p => p.is_alive !== false);
+    const traitorAlive = alivePlayers.some(p => p.user_id === traitorId);
+
+    // If only 2 players remain alive and traitor is among them, traitor wins.
+    if (alivePlayers.length <= 2 && traitorAlive) {
+      endGame({
+        winner: "traitor",
+        reason: "two_players_left",
+        traitorId,
+      });
+    }
+  }, [players, traitorId, room, isHostNow]);
 
   useEffect(() => {
     if (!room) return;
@@ -211,11 +395,10 @@ const Discussion = () => {
           schema: "public",
           table: "game_votes",
         },
-        () => fetchVotes(room.id)
+        () => fetchVotes(room.id, voteSessionRef.current)
       )
       .subscribe();
 
-    // Subscribe to room status changes (for back to lobby)
     const roomChannel = supabase
       .channel(`room_status_${roomCode}`)
       .on(
@@ -226,16 +409,41 @@ const Discussion = () => {
           table: "game_rooms",
         },
         (payload) => {
-          if (payload.new?.room_code === roomCode?.toUpperCase() && payload.new?.status === "waiting") {
+          if (payload.new?.room_code !== roomCode?.toUpperCase()) return;
+
+          // Update local room state immediately to handle host changes
+          setRoom((prev) => ({ ...(prev || {}), ...payload.new }));
+
+          if (payload.new?.status === "waiting") {
             navigate(`/lobby/${roomCode}`, {
-              state: { playerName, isHost: payload.new?.host_id === profileId, profileId }
+              state: { playerName, isHost: payload.new?.host_id === profileId, profileId },
             });
+          }
+
+          if (payload.new?.status === "hint_drop") {
+            const isHostFromPayload = payload.new?.host_id === profileId;
+            navigate(`/hint/${roomCode}`, {
+              state: { playerName, isHost: isHostFromPayload, profileId },
+            });
+          }
+
+          if (payload.new?.status === "finished") {
+            if (payload.new?.settings?.gameResult) {
+              setGameResult(payload.new.settings.gameResult);
+            }
+          }
+
+          if (payload.new?.settings?.voteSession) {
+            setVoteSession(payload.new.settings.voteSession);
+          }
+
+          if (payload.new?.settings?.voteSessionStartedAt) {
+            setTimeLeft(computeTimeLeft(payload.new.settings.voteSessionStartedAt));
           }
         }
       )
       .subscribe();
 
-    // Subscribe to participant changes (for spectator updates)
     const participantsChannel = supabase
       .channel(`participants_${roomCode}`)
       .on(
@@ -246,7 +454,6 @@ const Discussion = () => {
           table: "room_participants",
         },
         async () => {
-          // Refresh participants to get updated spectator status
           const { data: participants } = await supabase
             .from("room_participants")
             .select("*, profiles!room_participants_user_id_fkey(username)")
@@ -254,13 +461,11 @@ const Discussion = () => {
 
           setPlayers(participants || []);
 
-          // Check if current player became a spectator (is_alive === false)
           const currentParticipant = participants?.find(p => p.user_id === profileId);
           if (currentParticipant?.is_alive === false) {
             setIsSpectator(true);
           }
 
-          // Update eliminated players list
           const eliminated = participants?.filter(p => p.is_alive === false) || [];
           setEliminatedPlayers(eliminated.map(p => p.user_id));
         }
@@ -299,24 +504,25 @@ const Discussion = () => {
 
   const handleVote = async (votedForId) => {
     if (!profileId || !room || myVote || votingComplete || isSpectator) {
-      console.log("Vote blocked:", { profileId, room: !!room, myVote, votingComplete, isSpectator });
       return;
     }
 
-    console.log("Submitting vote:", { room_id: room.id, voter_id: profileId, voted_user_id: votedForId });
-
-    const { data, error } = await supabase.from("game_votes").insert({
+    const { error } = await supabase.from("game_votes").insert({
       room_id: room.id,
       voter_id: profileId,
       voted_user_id: votedForId,
-      round_number: room.current_round || 1,
-    }).select();
+      round_number: voteSessionRef.current,
+    });
 
-    if (error) {
-      console.error("Vote error:", error);
-    } else {
-      console.log("Vote success:", data);
+    if (!error) {
       setMyVote(votedForId);
+    }
+  };
+
+  const handleExitGame = async () => {
+    if (room && profileId) {
+        await leaveGameRoom(room.id, profileId, isHostNow);
+        navigate("/");
     }
   };
 
@@ -337,27 +543,29 @@ const Discussion = () => {
 
   const isTraitor = votedPlayer?.user_id === traitorId;
 
-  // Handle going back to lobby (when traitor is caught)
   const handleBackToLobby = async () => {
     if (!room) return;
-
     try {
-      // Reset game state - clear votes, hints, and reset room status
       await supabase.from("game_votes").delete().eq("room_id", room.id);
       await supabase.from("game_hints").delete().eq("room_id", room.id);
       await supabase.from("chat_messages").delete().eq("room_id", room.id);
       await supabase.from("round_secrets").delete().eq("room_id", room.id);
-
-      // Reset all participants to alive
       await supabase
         .from("room_participants")
         .update({ is_alive: true })
         .eq("room_id", room.id);
-
-      // Update room status to waiting
       await supabase
         .from("game_rooms")
-        .update({ status: "waiting", current_round: 1 })
+        .update({
+          status: "waiting",
+          current_round: 1,
+          settings: {
+            ...(room.settings || {}),
+            voteSession: 1,
+            gameResult: null,
+            voteSessionStartedAt: null,
+          },
+        })
         .eq("id", room.id);
 
       navigate(`/lobby/${roomCode}`, {
@@ -368,44 +576,141 @@ const Discussion = () => {
     }
   };
 
-  // Handle continuing the game when an innocent is kicked
   const handleContinueGame = async () => {
     if (!room || !votedPlayer) return;
+    if (!isHostNow) return;
 
     try {
-      // Mark the voted player as eliminated (spectator)
+      // Mark the voted player as eliminated
       await supabase
         .from("room_participants")
         .update({ is_alive: false })
         .eq("room_id", room.id)
         .eq("user_id", votedPlayer.user_id);
 
-      // Clear votes for the next round of voting
-      await supabase.from("game_votes").delete().eq("room_id", room.id);
+      // Check win condition immediately after elimination
+      const { data: updatedParticipants } = await supabase
+        .from("room_participants")
+        .select("user_id, is_alive, role")
+        .eq("room_id", room.id);
 
-      // Reset local state for next voting round
-      setVotes([]);
-      setMyVote(null);
-      setVotingComplete(false);
-      setShowResults(false);
-      setVotedPlayer(null);
-      setTimeLeft(120);
-
-      // Update eliminated players list
-      setEliminatedPlayers(prev => [...prev, votedPlayer.user_id]);
-
-      // Check if current user was the one kicked
-      if (votedPlayer.user_id === profileId) {
-        setIsSpectator(true);
+      const alivePlayers = (updatedParticipants || []).filter(p => p.is_alive !== false);
+      const traitorAlive = alivePlayers.some(p => p.user_id === traitorId || p.role === "traitor");
+      
+      if (alivePlayers.length <= 2 && traitorAlive) {
+        await endGame({
+          winner: "traitor",
+          reason: "two_players_left",
+          traitorId,
+        });
+        return;
       }
+
+      await supabase.from("game_hints").delete().eq("room_id", room.id);
+      await supabase.from("game_votes").delete().eq("room_id", room.id).eq("round_number", voteSessionRef.current);
+
+      const nextSession = (voteSessionRef.current || 1) + 1;
+      const hintStartedAt = await getServerNowIso();
+
+      await supabase
+        .from("game_rooms")
+        .update({
+          status: "hint_drop",
+          settings: {
+            ...(room.settings || {}),
+            voteSession: nextSession,
+            hintRound: nextSession,
+            hintStartedAt,
+            voteSessionStartedAt: null,
+          },
+        })
+        .eq("id", room.id);
+
+      navigate(`/hint/${roomCode}`, {
+        state: { playerName, isHost: true, profileId },
+      });
     } catch (error) {
       console.error("Error continuing game:", error);
     }
   };
 
+  if (gameResult?.winner) {
+    const traitorName = traitorId ? getPlayerName(traitorId) : "Unknown";
+    const citizensWon = gameResult.winner === "citizens";
+
+    return (
+      <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center relative">
+          {/* Exit Button - Top Left */}
+          <div className="absolute top-4 left-4 z-10">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2"
+            onClick={handleExitGame}
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Exit
+          </Button>
+        </div>
+
+        <div className="container max-w-lg mx-auto px-4">
+          <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-8 shadow-xl animate-fade-in-up text-center">
+            <div className={`w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center ${
+              citizensWon ? "bg-green-500/20 border-2 border-green-500" : "bg-red-500/20 border-2 border-red-500"
+            }`}>
+              {citizensWon ? (
+                <Trophy className="w-10 h-10 text-green-500" />
+              ) : (
+                <Skull className="w-10 h-10 text-red-500" />
+              )}
+            </div>
+
+            <h1 className="text-3xl font-heading font-bold mb-2">
+              {citizensWon ? "Citizens Win!" : "Traitor Wins!"}
+            </h1>
+
+            <p className="text-muted-foreground mb-6">
+              {citizensWon
+                ? "The traitor has been eliminated."
+                : "Only two players remain. The traitor escapes."}
+            </p>
+
+            <div className="bg-background/50 rounded-xl p-4 mb-6">
+              <h3 className="text-lg font-bold mb-2">Traitor Reveal</h3>
+              <p className="text-sm text-muted-foreground">The traitor was</p>
+              <p className="text-xl font-heading font-bold text-secondary">{traitorName}</p>
+            </div>
+
+            <Button
+              variant="neonCyan"
+              size="lg"
+              onClick={handleBackToLobby}
+              disabled={!isHostNow}
+            >
+              {isHostNow ? "Back to Lobby" : "Waiting for host..."}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (showResults && votedPlayer) {
     return (
-      <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center">
+      <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center relative">
+         {/* Exit Button - Top Left */}
+         <div className="absolute top-4 left-4 z-10">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2"
+            onClick={handleExitGame}
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Exit
+          </Button>
+        </div>
+
         <div className="container max-w-lg mx-auto px-4">
           <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-8 shadow-xl animate-fade-in-up text-center">
             <div className={`w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center ${
@@ -441,9 +746,8 @@ const Discussion = () => {
               <div className="space-y-2">
                 {players.map(p => (
                   <div key={p.user_id} className="flex items-center justify-between">
-                    <span className={p.user_id === traitorId ? "text-red-400" : ""}>
+                    <span className={""}>
                       {p.profiles?.username}
-                      {p.user_id === traitorId && " (Traitor)"}
                       {p.is_alive === false && " (Eliminated)"}
                     </span>
                     <span className="font-mono">{getVoteCount(p.user_id)} votes</span>
@@ -471,14 +775,15 @@ const Discussion = () => {
                   😢 An innocent was eliminated!
                 </div>
                 <p className="text-muted-foreground mb-6">
-                  The traitor is still among you. Continue the hunt!
+                  The traitor is still among you. Drop new hints and continue the hunt!
                 </p>
                 <Button
                   variant="neonCyan"
                   size="lg"
                   onClick={handleContinueGame}
+                  disabled={!isHostNow}
                 >
-                  Continue Voting
+                  {isHostNow ? "Continue to Hint Phase" : "Waiting for host..."}
                 </Button>
               </>
             )}
@@ -489,8 +794,21 @@ const Discussion = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background gradient-mesh">
-      <div className="container max-w-4xl mx-auto px-4 py-6">
+    <div className="min-h-screen bg-background gradient-mesh relative">
+         {/* Exit Button - Top Left */}
+         <div className="absolute top-4 left-4 z-10">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2"
+            onClick={handleExitGame}
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Exit
+          </Button>
+        </div>
+
+      <div className="container max-w-4xl mx-auto px-4 py-6 pt-16">
         <div className="flex items-center justify-between mb-6 animate-fade-in-up">
           <h1 className="text-2xl font-heading font-bold flex items-center gap-2">
             <MessageCircle className="w-6 h-6 text-primary" />

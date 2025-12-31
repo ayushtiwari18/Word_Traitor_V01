@@ -20,6 +20,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { supabase } from "@/lib/supabaseClient";
+import { useRoomPresence } from "@/lib/useRoomPresence";
 
 const Lobby = () => {
   const { roomCode } = useParams();
@@ -49,6 +50,37 @@ const Lobby = () => {
     anonymousVoting: false,
   });
   const [currentIsHost, setCurrentIsHost] = useState(isHost || false);
+
+  const redirectByStatus = (roomData) => {
+    if (!roomData?.status || !roomCode) return;
+    if (!profileId) return;
+
+    const computedIsHost = !!(roomData.host_id && roomData.host_id === profileId);
+
+    // Keep lobby only for waiting state.
+    if (roomData.status === "playing") {
+      navigate(`/word/${roomCode}`, {
+        state: { playerName, isHost: computedIsHost, profileId },
+      });
+      return;
+    }
+
+    if (roomData.status === "hint_drop") {
+      navigate(`/hint/${roomCode}`, {
+        state: { playerName, isHost: computedIsHost, profileId },
+      });
+      return;
+    }
+
+    if (roomData.status === "discussion" || roomData.status === "finished") {
+      navigate(`/discussion/${roomCode}`, {
+        state: { playerName, isHost: computedIsHost, profileId },
+      });
+    }
+  };
+
+  // 📡 PRESENCE HOOK: Handles host transfer & ghost cleanup
+  useRoomPresence(roomCode, room?.id, profileId, currentIsHost);
 
   // 🔧 Update settings in Supabase when host changes them
   const updateGameSettings = async (newSettings) => {
@@ -92,6 +124,11 @@ const Lobby = () => {
       } else {
         setCurrentIsHost(false);
       }
+
+      // 🔀 If the game already started (or advanced), jump to the right phase.
+      // This prevents players (and especially the host) getting stuck in Lobby.
+      redirectByStatus(roomData);
+
       const { data: participants, error: partErr } = await supabase
         .from("room_participants")
         .select("*, profiles!room_participants_user_id_fkey(username)")
@@ -129,13 +166,8 @@ const Lobby = () => {
         (payload) => {
           console.log("🎮 Game room updated:", payload);
           fetchRoomData();
-          if (
-            payload.new?.room_code === roomCode?.toUpperCase() &&
-            payload.new?.status === "playing"
-          ) {
-            navigate(`/word/${roomCode}`, {
-              state: { playerName, currentIsHost, profileId },
-            });
+          if (payload.new?.room_code === roomCode?.toUpperCase()) {
+            redirectByStatus(payload.new);
           }
         }
       )
@@ -194,19 +226,6 @@ const Lobby = () => {
       }
 
       console.log("🎮 Game started:", data);
-
-      // update status to 'playing' & save final settings
-      const { error } = await supabase
-        .from("game_rooms")
-        .update({
-          status: "playing",
-          settings,
-        })
-        .eq("id", room.id);
-
-      if (error) {
-        console.error("Error updating game status:", error);
-      }
 
       // 🔀 redirect to word reveal page (next phase)
       navigate(`/word/${roomCode}`, {
