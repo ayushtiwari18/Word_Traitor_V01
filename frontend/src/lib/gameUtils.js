@@ -65,6 +65,11 @@ export const leaveGameRoom = async (roomId, profileId, isHost) => {
  */
 export const promoteNewHost = async (roomId, oldHostId, onlineUserIds = []) => {
   try {
+    if (!onlineUserIds || onlineUserIds.length === 0) {
+      console.warn("⚠️ Skipping host promotion: no presence data yet.");
+      return;
+    }
+
     // Fetch all participants from DB
     const { data: players } = await supabase
       .from("room_participants")
@@ -78,11 +83,8 @@ export const promoteNewHost = async (roomId, oldHostId, onlineUserIds = []) => {
       return;
     }
 
-    // CRITICAL FIX: Filter candidates to ensure they are actually ONLINE.
-    // If onlineUserIds is empty/null, we fall back to DB list (risky, but better than nothing).
-    const validCandidates = (onlineUserIds && onlineUserIds.length > 0)
-      ? players.filter(p => onlineUserIds.includes(p.user_id))
-      : players;
+    // Filter candidates to ensure they are actually ONLINE.
+    const validCandidates = players.filter((p) => onlineUserIds.includes(p.user_id));
 
     if (validCandidates.length === 0) {
       console.warn("⚠️ No ONLINE candidates found to promote. Room might be dead.");

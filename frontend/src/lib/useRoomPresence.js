@@ -15,6 +15,7 @@ import { promoteNewHost, removeGhostPlayer } from "@/lib/gameUtils";
  */
 export const useRoomPresence = (roomCode, roomId, profileId, isHost) => {
   const presenceChannelRef = useRef(null);
+  const hasTrackedRef = useRef(false);
 
   useEffect(() => {
     if (!roomCode || !profileId || !roomId) return;
@@ -34,6 +35,13 @@ export const useRoomPresence = (roomCode, roomId, profileId, isHost) => {
         const onlineUserIds = Object.keys(newState);
         console.log("🟢 Presence Sync:", onlineUserIds);
 
+        // Avoid host-election races during initial subscribe/track.
+        // On first sync, presence can be empty (before track propagates), which can
+        // incorrectly mark the host as offline and trigger a bad promotion.
+        if (!hasTrackedRef.current || !onlineUserIds.includes(profileId)) {
+          return;
+        }
+
         // LOGIC: Host Transfer
         // 1. Fetch current host from DB to be sure
         const { data: roomData } = await supabase
@@ -51,8 +59,8 @@ export const useRoomPresence = (roomCode, roomId, profileId, isHost) => {
           // 3. ELECTION: The oldest remaining online player performs the update
           const randomDelay = Math.floor(Math.random() * 2000);
           setTimeout(() => {
-             // Pass onlineUserIds to ensure we pick an online host
-             promoteNewHost(roomId, currentHostId, onlineUserIds);
+            // Pass onlineUserIds to ensure we pick an online host
+            promoteNewHost(roomId, currentHostId, onlineUserIds);
           }, randomDelay);
         }
 
@@ -66,12 +74,14 @@ export const useRoomPresence = (roomCode, roomId, profileId, isHost) => {
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
           await channel.track({ online_at: new Date().toISOString() });
+          hasTrackedRef.current = true;
         }
       });
 
     presenceChannelRef.current = channel;
 
     return () => {
+      hasTrackedRef.current = false;
       supabase.removeChannel(channel);
     };
   }, [roomCode, roomId, profileId, isHost]);

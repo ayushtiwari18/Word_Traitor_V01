@@ -244,6 +244,42 @@ const Whisper = () => {
     return () => clearInterval(interval);
   }, [room?.settings?.wordRevealStartedAt]);
 
+  // If host changes mid-reveal, ensure the reveal start time gets persisted.
+  // Without this, a new host can be elected but never sets `wordRevealStartedAt`,
+  // leaving everyone stuck on the reveal screen.
+  useEffect(() => {
+    if (!room || !isHostNow) return;
+    if (room?.settings?.wordRevealStartedAt) return;
+
+    const persistRevealStart = async () => {
+      try {
+        const startedAt = await getServerNowIso();
+        const nextSettings = {
+          ...(room.settings || {}),
+          wordRevealStartedAt: startedAt,
+        };
+
+        const { error } = await supabase
+          .from("game_rooms")
+          .update({ settings: nextSettings })
+          .eq("id", room.id);
+
+        if (error) {
+          console.error("Error persisting wordRevealStartedAt:", error);
+          return;
+        }
+
+        setRoom((prev) => ({ ...(prev || room), settings: nextSettings }));
+        setCountdown(computeTimeLeft(startedAt, REVEAL_DURATION_SECONDS));
+      } catch (e) {
+        console.error("Error persisting reveal start:", e);
+      }
+    };
+
+    persistRevealStart();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [room?.id, isHostNow, room?.settings?.wordRevealStartedAt]);
+
   // Host advances everyone to hint phase when timer ends (synced)
   useEffect(() => {
     if (!room || !isHostNow || hasNavigated.current) return;

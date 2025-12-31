@@ -124,8 +124,10 @@ const HintDrop = () => {
         setHintTime(time);
         setTimeLeft(computeTimeLeft(roomData?.settings?.hintStartedAt, time));
 
-        // Ensure hint phase start is persisted once (host only)
-        if (!roomData?.settings?.hintStartedAt && isHost) {
+        // Ensure hint phase start is persisted once (host only).
+        // Use computed host status (host can change via presence).
+        const isHostFromRoom = !!(roomData.host_id && profileId && roomData.host_id === profileId);
+        if (!roomData?.settings?.hintStartedAt && isHostFromRoom) {
           const startedAt = await getServerNowIso();
           await supabase
             .from("game_rooms")
