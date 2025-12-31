@@ -1,9 +1,10 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
-import { Send, Clock, CheckCircle, Users } from "lucide-react";
+import { Send, Clock, CheckCircle, Users, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabaseClient";
+import { leaveGameRoom } from "@/lib/gameUtils";
 
 const HintDrop = () => {
   const { roomCode } = useParams();
@@ -32,6 +33,9 @@ const HintDrop = () => {
   
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
   const serverOffsetRef = useRef(0);
+
+  // Compute "current" isHost status from room data
+  const isHostNow = !!(room?.host_id && profileId && room.host_id === profileId);
 
   useEffect(() => {
     serverOffsetRef.current = serverOffsetMs;
@@ -212,9 +216,13 @@ const HintDrop = () => {
         },
         (payload) => {
           if (payload.new?.room_code !== roomCode?.toUpperCase()) return;
+          
+          // Update room state to reflect new host if changed
+          setRoom(payload.new);
 
           if (payload.new?.status === "discussion") {
-            navigate(`/discussion/${roomCode}`, { state: { playerName, isHost, profileId } });
+            const isHostFromPayload = payload.new.host_id === profileId;
+            navigate(`/discussion/${roomCode}`, { state: { playerName, isHost: isHostFromPayload, profileId } });
           }
 
           const nextHintStartedAt = payload.new?.settings?.hintStartedAt;
@@ -261,11 +269,11 @@ const HintDrop = () => {
   useEffect(() => {
     if (alivePlayers.length > 0 && submittedPlayers.length >= alivePlayers.length) {
       // All alive players submitted, host can proceed
-      if (isHost) {
+      if (isHostNow) {
         moveToDiscussion();
       }
     }
-  }, [submittedPlayers, alivePlayers, isHost]);
+  }, [submittedPlayers, alivePlayers, isHostNow]);
 
   const handleTimeUp = async () => {
     // Auto-submit empty hint if not submitted (and not a spectator)
@@ -278,7 +286,7 @@ const HintDrop = () => {
     }
     
     // Host moves everyone to discussion
-    if (isHost) {
+    if (isHostNow) {
       setTimeout(() => moveToDiscussion(), 1000);
     }
   };
@@ -306,7 +314,7 @@ const HintDrop = () => {
        console.error("Error moving to discussion:", error);
        hasMovedToDiscussion.current = false; // Reset on error
     } else {
-      navigate(`/discussion/${roomCode}`, { state: { playerName, isHost, profileId } });
+      navigate(`/discussion/${roomCode}`, { state: { playerName, isHost: true, profileId } });
     }
   };
 
@@ -326,6 +334,13 @@ const HintDrop = () => {
 
     setSubmitted(true);
   };
+  
+  const handleExitGame = async () => {
+    if (room && profileId) {
+        await leaveGameRoom(room.id, profileId, isHostNow);
+        navigate("/");
+    }
+  };
 
   const formatTime = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -334,7 +349,20 @@ const HintDrop = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center">
+    <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center relative">
+       {/* Exit Button - Top Left */}
+       <div className="absolute top-4 left-4 z-10">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="gap-2"
+            onClick={handleExitGame}
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Exit
+          </Button>
+        </div>
+
       <div className="container max-w-lg mx-auto px-4">
         <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-8 shadow-xl animate-fade-in-up">
           {/* Timer */}
