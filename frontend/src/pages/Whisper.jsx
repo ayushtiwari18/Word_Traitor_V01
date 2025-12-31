@@ -4,6 +4,7 @@ import { Eye, EyeOff, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabaseClient";
 import TraitorLeftModal from "@/components/TraitorLeftModal";
+import { leaveGameRoom } from "@/lib/gameUtils";
 
 const Whisper = () => {
   const REVEAL_DURATION_SECONDS = 10;
@@ -160,7 +161,6 @@ const Whisper = () => {
           console.log("No secret assigned yet, waiting...", secretErr);
         } else {
           setSecretWord(secretData);
-          // Word descriptions depend on word_pairs relation; keep optional.
           setWordDescription(null);
         }
 
@@ -199,7 +199,6 @@ const Whisper = () => {
           console.log("🎮 Room status changed:", payload.new?.status);
           if (payload.new?.room_code !== roomCode?.toUpperCase()) return;
 
-          // Keep local room/settings in sync (timers rely on settings timestamps)
           setRoom(payload.new);
 
           if (payload.new?.status === "hint_drop" && !hasNavigated.current) {
@@ -285,7 +284,7 @@ const Whisper = () => {
     }
 
     try {
-      // Check if this player is the traitor (role assigned by start-round)
+      // Check if this player is the traitor
       const { data: participantData } = await supabase
         .from("room_participants")
         .select("role")
@@ -295,14 +294,7 @@ const Whisper = () => {
 
       const isTraitor = participantData?.role === "traitor";
 
-      // Delete participant from room
-      await supabase
-        .from("room_participants")
-        .delete()
-        .eq("room_id", room.id)
-        .eq("user_id", profileId);
-
-      // If traitor left, notify other players by updating room status
+      // If traitor left, notify others
       if (isTraitor) {
         await supabase
           .from("game_rooms")
@@ -312,6 +304,10 @@ const Whisper = () => {
           })
           .eq("id", room.id);
       }
+
+      // 🛡️ USE ROBUST LEAVE LOGIC
+      // (Pass isHostNow which is computed from current room state)
+      await leaveGameRoom(room.id, profileId, isHostNow);
 
       localStorage.removeItem(`profile_id_${roomCode?.toUpperCase()}`);
       navigate("/");
