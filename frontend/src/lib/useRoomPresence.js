@@ -6,7 +6,7 @@ import { promoteNewHost, removeGhostPlayer } from "@/lib/gameUtils";
  * Custom Hook: Manages Realtime Presence for a game room.
  * - Tracks who is online.
  * - Handles auto-promoting a new host if the current host disconnects.
- * - Allows the Host (only) to cleanup "ghost" players from the DB who are not in presence state.
+ * - (Disabled temporarily) Allows the Host to cleanup "ghost" players.
  * 
  * @param {string} roomCode - The room code (e.g. ABCD)
  * @param {string} roomId - The room UUID
@@ -55,8 +55,9 @@ export const useRoomPresence = (roomCode, roomId, profileId, isHost) => {
           }, randomDelay);
         }
 
-        // LOGIC: Ghost Cleanup (Host Only)
-        // If I am the host (and I am online, obviously), I should check if there are DB rows for users who are NOT online.
+        // LOGIC: Ghost Cleanup (DISABLED TEMPORARILY)
+        // We are disabling this to prevent players from disappearing due to race conditions.
+        /*
         if (isHost) {
           // Fetch DB participants with their joined time
           const { data: participants } = await supabase
@@ -82,11 +83,10 @@ export const useRoomPresence = (roomCode, roomId, profileId, isHost) => {
             if (ghosts.length > 0) {
               console.log(`👻 Detected ${ghosts.length} STALE ghosts. Cleaning up...`, ghosts);
               ghosts.forEach(g => removeGhostPlayer(roomId, g.user_id));
-            } else {
-              console.log("👻 No stale ghosts found (some might be in grace period).");
             }
           }
         }
+        */
       })
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
