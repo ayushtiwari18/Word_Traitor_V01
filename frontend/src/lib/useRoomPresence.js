@@ -6,11 +6,8 @@ import { promoteNewHost, removeGhostPlayer } from "@/lib/gameUtils";
  * Custom Hook: Manages Realtime Presence for a game room.
  * - Tracks who is online.
  * - Handles auto-promoting a new host if the current host disconnects.
- * - Allows the Host to cleanup "ghost" players (stale DB participants who are no longer online).
- *
- * NOTE: Ghost cleanup is intentionally conservative (time-based) to avoid accidental removals
- * during initial presence sync.
- *
+ * - Allows the Host to cleanup "ghost" players using a polling interval.
+ * 
  * @param {string} roomCode - The room code (e.g. ABCD)
  * @param {string} roomId - The room UUID
  * @param {string} profileId - Current user's ID
@@ -20,10 +17,12 @@ export const useRoomPresence = (roomCode, roomId, profileId, isHost) => {
   const presenceChannelRef = useRef(null);
   const hasTrackedRef = useRef(false);
 
-  // Track last time we saw each user online (from presence).
-  // This supports safe "ghost cleanup" with a grace period.
+  // Store online users ref for access inside interval
+  const onlineUsersRef = useRef([]);
+  // Track last time we saw each user online
   const lastSeenOnlineRef = useRef({});
 
+  // 1. Setup Presence Channel & Listeners
   useEffect(() => {
     if (!roomCode || !profileId || !roomId) return;
 
@@ -42,13 +41,15 @@ export const useRoomPresence = (roomCode, roomId, profileId, isHost) => {
         const onlineUserIds = Object.keys(newState);
         console.log("🟢 Presence Sync:", onlineUserIds);
 
+        // Update Refs
+        onlineUsersRef.current = onlineUserIds;
         const nowMs = Date.now();
         for (const uid of onlineUserIds) {
           lastSeenOnlineRef.current[uid] = nowMs;
         }
 
-        // LOGIC: Host Transfer
-        // 1. Fetch current host from DB to be sure
+        // LOGIC: Host Transfer (Immediate Trigger)
+        // This works fine in 'sync' because it's an immediate reaction to a change
         const { data: roomData } = await supabase
           .from("game_rooms")
           .select("host_id")
@@ -57,67 +58,13 @@ export const useRoomPresence = (roomCode, roomId, profileId, isHost) => {
 
         const currentHostId = roomData?.host_id;
 
-        // 2. If the DB says "Host X", but "Host X" is NOT in onlineUserIds...
-        // AND we have a valid list of online users (at least 1 person is online)
         if (
           currentHostId &&
           !onlineUserIds.includes(currentHostId) &&
           onlineUserIds.length > 0
         ) {
-          console.warn(
-            `⚠️ Host ${currentHostId} is offline! Initiating transfer.`
-          );
-
-          // 3. ELECTION: Atomic update in gameUtils prevents race conditions.
+          console.warn(`⚠️ Host ${currentHostId} is offline! Initiating transfer.`);
           promoteNewHost(roomId, currentHostId, onlineUserIds);
-        }
-
-        // LOGIC: Ghost Cleanup (CONSERVATIVE)
-        // Why: if a user closes the tab / presses back, `leaveGameRoom()` may not run,
-        // leaving a stale `room_participants` row. That can block voting (waiting for a vote
-        // from someone who is no longer online).
-        if (!isHost) return;
-
-        // Only allow cleanup after THIS client has successfully tracked presence.
-        // This avoids "1-2 sec" accidental deletions during initial sync.
-        if (!hasTrackedRef.current) return;
-
-        // Extra safety: only cleanup once we can see ourselves online.
-        if (!onlineUserIds.includes(profileId)) return;
-
-        // Grace period before deleting a missing user.
-        const OFFLINE_GRACE_MS = 12000;
-
-        const { data: participants, error: participantsErr } = await supabase
-          .from("room_participants")
-          .select("user_id")
-          .eq("room_id", roomId);
-
-        if (participantsErr) {
-          console.warn("⚠️ Ghost cleanup: failed to fetch participants", participantsErr);
-          return;
-        }
-
-        for (const p of participants || []) {
-          const uid = p.user_id;
-          if (!uid) continue;
-
-          // Never try to delete self.
-          if (uid === profileId) continue;
-
-          // If user is online, skip.
-          if (onlineUserIds.includes(uid)) continue;
-
-          const lastSeen = lastSeenOnlineRef.current[uid] || 0;
-          const offlineForMs = nowMs - lastSeen;
-
-          // Only remove if we've seen them online before (lastSeen > 0)
-          // and they've been missing for longer than the grace period.
-          if (lastSeen > 0 && offlineForMs > OFFLINE_GRACE_MS) {
-            console.log(`👻 Ghost cleanup: removing ${uid} (offline ${offlineForMs}ms)`);
-            await removeGhostPlayer(roomId, uid);
-            delete lastSeenOnlineRef.current[uid];
-          }
         }
       })
       .subscribe(async (status) => {
@@ -133,5 +80,65 @@ export const useRoomPresence = (roomCode, roomId, profileId, isHost) => {
       hasTrackedRef.current = false;
       supabase.removeChannel(channel);
     };
-  }, [roomCode, roomId, profileId, isHost]);
+  }, [roomCode, roomId, profileId]); // Removed isHost dep to avoid re-subscribing
+
+  // 2. Setup Ghost Cleanup Interval
+  // We use a separate interval because "sync" only fires ONCE when a user leaves.
+  // We need to wait for the grace period to expire, which requires periodic checking.
+  useEffect(() => {
+    if (!isHost || !roomId) return;
+
+    const CLEANUP_INTERVAL_MS = 5000; // Check every 5s
+    const OFFLINE_GRACE_MS = 10000;   // Remove after 10s offline
+
+    const intervalId = setInterval(async () => {
+      // Safety: Don't clean up if we haven't tracked yet or can't see ourselves
+      if (!hasTrackedRef.current) return;
+      if (!onlineUsersRef.current.includes(profileId)) return;
+
+      try {
+        // Fetch DB state
+        const { data: participants, error } = await supabase
+          .from("room_participants")
+          .select("user_id")
+          .eq("room_id", roomId);
+
+        if (error || !participants) return;
+
+        const nowMs = Date.now();
+
+        for (const p of participants) {
+          const uid = p.user_id;
+          if (!uid || uid === profileId) continue; // Skip self
+
+          // If currently online, skip
+          if (onlineUsersRef.current.includes(uid)) continue;
+
+          // If user is missing from presence, check how long
+          const lastSeen = lastSeenOnlineRef.current[uid] || 0;
+          
+          // If we never saw them (joined before us?), assume they are just gone
+          // But to be safe, we use the timestamp of when WE started tracking as a baseline
+          // Actually, 'lastSeen' being 0 means we haven't seen them since WE joined.
+          // If we just joined, we shouldn't delete immediately.
+          // Simple heuristic: we only delete if we HAVE seen them (lastSeen > 0)
+          // OR if we've been running for a while. 
+          // For simplicity/safety: only delete if lastSeen > 0.
+          if (lastSeen > 0) {
+            const offlineFor = nowMs - lastSeen;
+            if (offlineFor > OFFLINE_GRACE_MS) {
+              console.log(`👻 Ghost Cleanup: Removing ${uid} (Offline ${offlineFor}ms)`);
+              await removeGhostPlayer(roomId, uid);
+              // Clear from ref so we don't try again immediately (though DB delete handles it)
+              delete lastSeenOnlineRef.current[uid]; 
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Ghost cleanup interval error:", err);
+      }
+    }, CLEANUP_INTERVAL_MS);
+
+    return () => clearInterval(intervalId);
+  }, [isHost, roomId, profileId]);
 };
