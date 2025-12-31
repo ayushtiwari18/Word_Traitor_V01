@@ -9,31 +9,7 @@ const corsHeaders = {
 // 🛡️ FALLBACK WORDS
 // Ensures game starts even if database 'word_pairs' table is empty or fails.
 const FALLBACK_WORDS = [
-  { civilian_word: "Silent Desire", traitor_word: "Unspoken Thought", difficulty: "hard_18plus" },
-  { civilian_word: "Desperate Texts", traitor_word: "Multiple Messages", difficulty: "medium_18plus" },
-  { civilian_word: "Late Night Regret", traitor_word: "Second Thoughts", difficulty: "hard_18plus" },
-  { civilian_word: "Sexual Tension", traitor_word: "Awkward Silence", difficulty: "hard_18plus" },
-  { civilian_word: "Nudes", traitor_word: "Photos", difficulty: "hard_18plus" },
-  { civilian_word: "Touch", traitor_word: "Tap", difficulty: "easy_18plus" },
-  { civilian_word: "Sexy", traitor_word: "Hot", difficulty: "easy_18plus" },
-  { civilian_word: "Bedroom Politics", traitor_word: "Relationship Rules", difficulty: "easy_18plus" },
-  { civilian_word: "Makeout", traitor_word: "Flirting", difficulty: "easy_18plus" },
-  { civilian_word: "Private Chat", traitor_word: "Group Chat", difficulty: "easy_18plus" },
-  { civilian_word: "Lingerie", traitor_word: "Underwear", difficulty: "easy_18plus" },
-  { civilian_word: "Condom", traitor_word: "Balloon", difficulty: "easy_18plus" },
-  { civilian_word: "Kink", traitor_word: "Preference", difficulty: "hard_18plus" },
-  { civilian_word: "Fetish", traitor_word: "Interest", difficulty: "hard_18plus" },
-  { civilian_word: "Shame", traitor_word: "Embarrassment", difficulty: "hard_18plus" },
-  { civilian_word: "Bedroom Eyes", traitor_word: "Eye Contact", difficulty: "medium_18plus" },
-  { civilian_word: "Heat", traitor_word: "Energy", difficulty: "medium_18plus" },
-  { civilian_word: "Physical Attraction", traitor_word: "Mental Attraction", difficulty: "medium_18plus" },
-  { civilian_word: "Dominance", traitor_word: "Control", difficulty: "medium_18plus" },
-  { civilian_word: "Secret Crush", traitor_word: "Secret Friend", difficulty: "medium_18plus" },
-  { civilian_word: "Morning After", traitor_word: "Next Day", difficulty: "hard_18plus" },
-  { civilian_word: "Sun", traitor_word: "Moon", difficulty: "easy" },
-  { civilian_word: "Coffee", traitor_word: "Tea", difficulty: "medium" },
-  { civilian_word: "Beach", traitor_word: "Desert", difficulty: "medium" },
-  { civilian_word: "Car", traitor_word: "Truck", difficulty: "easy" }
+
 ];
 
 serve(async (req) => {
