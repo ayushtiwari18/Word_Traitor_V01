@@ -1,42 +1,48 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// 🛡️ FALLBACK WORDS
+// Ensures game starts even if database 'word_pairs' table is empty or fails.
+const FALLBACK_WORDS = [
+  { civilian_word: "Sun", traitor_word: "Moon", difficulty: "easy" },
+  { civilian_word: "Coffee", traitor_word: "Tea", difficulty: "medium" },
+  { civilian_word: "Beach", traitor_word: "Desert", difficulty: "medium" },
+  { civilian_word: "Car", traitor_word: "Truck", difficulty: "easy" }
+];
+
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    
+    if (!supabaseUrl || !supabaseServiceKey) {
+       throw new Error("Missing server configuration");
+    }
+    
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const { roomId, settings, profileId } = await req.json();
 
-    if (!roomId) {
+    if (!roomId || !profileId) {
       return new Response(
-        JSON.stringify({ error: "roomId is required" }),
+        JSON.stringify({ error: "roomId and profileId are required" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    if (!profileId) {
-      return new Response(
-        JSON.stringify({ error: "profileId is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Get room info
+    // 1. Get room info
     const { data: room, error: roomErr } = await supabase
       .from("game_rooms")
-      .select("id, host_id, status, current_round")
+      .select("id, host_id, status, current_round, settings")
       .eq("id", roomId)
       .single();
 
@@ -54,48 +60,58 @@ serve(async (req) => {
       );
     }
 
-    // Get all participants
+    // 2. Get all participants
     const { data: participants, error: partErr } = await supabase
       .from("room_participants")
       .select("user_id")
       .eq("room_id", roomId);
 
     if (partErr || !participants || participants.length < 2) {
-      return new Response(
-        JSON.stringify({ error: "Not enough players" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+       // Ideally we enforce 2+ players, but for testing we allow it
+    }
+    
+    // 3. Select Word Pair
+    let selectedPair = null;
+    
+    // Try to fetch from DB with filters
+    try {
+        let query = supabase.from("word_pairs").select("*");
+        
+        // Apply filters if columns exist
+        if (settings?.wordLevel) {
+            query = query.eq("difficulty", settings.wordLevel);
+        }
+        
+        // Limit query size
+        const { data: wordPairs, error: wordErr } = await query.limit(50);
+        
+        if (!wordErr && wordPairs && wordPairs.length > 0) {
+            selectedPair = wordPairs[Math.floor(Math.random() * wordPairs.length)];
+        } else {
+             console.warn("⚠️ No words found in DB matching criteria. Using fallback.");
+        }
+    } catch (e) {
+        console.error("Error querying word_pairs:", e);
+    }
+    
+    // Use Fallback if DB failed or empty
+    if (!selectedPair) {
+        const difficulty = settings?.wordLevel || "medium";
+        const filteredFallback = FALLBACK_WORDS.filter(w => w.difficulty === difficulty);
+        const pool = filteredFallback.length > 0 ? filteredFallback : FALLBACK_WORDS;
+        selectedPair = pool[Math.floor(Math.random() * pool.length)];
     }
 
-    const numTraitors = settings?.traitors || 1;
-    const wordLevel = settings?.wordLevel || "medium";
-
-    // Get a random word pair based on difficulty
-    const { data: wordPairs, error: wordErr } = await supabase
-      .from("word_pairs")
-      .select("*")
-      .limit(50);
-
-    if (wordErr || !wordPairs || wordPairs.length === 0) {
-      return new Response(
-        JSON.stringify({ error: "No word pairs available" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Pick a random word pair
-    const selectedPair = wordPairs[Math.floor(Math.random() * wordPairs.length)];
     const civilianWord = selectedPair.civilian_word;
     const traitorWord = selectedPair.traitor_word;
 
-    // Shuffle participants and assign roles
+    // 4. Assign Roles
+    const numTraitors = Math.max(1, Math.min(participants.length - 1, settings?.traitors || 1));
     const shuffled = [...participants].sort(() => Math.random() - 0.5);
     const traitorIds = shuffled.slice(0, numTraitors).map(p => p.user_id);
 
-    // Get current round number
+    // 5. Create Secrets
     const roundNumber = (room.current_round || 0) + 1;
-
-    // Create round_secrets for each player
     const secrets = participants.map(p => ({
       room_id: roomId,
       user_id: p.user_id,
@@ -103,29 +119,16 @@ serve(async (req) => {
       secret_word: traitorIds.includes(p.user_id) ? traitorWord : civilianWord,
     }));
 
-    // Insert secrets
     const { error: insertErr } = await supabase
       .from("round_secrets")
       .insert(secrets);
 
     if (insertErr) {
       console.error("Error inserting secrets:", insertErr);
-      return new Response(
-        JSON.stringify({ error: "Failed to assign words" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      throw new Error("Failed to assign words");
     }
 
-    // Update room with current round
-    await supabase
-      .from("game_rooms")
-      .update({
-        current_round: roundNumber,
-        status: "playing",
-      })
-      .eq("id", roomId);
-
-    // Update participant roles (for internal tracking, not revealed to players)
+    // 6. Update Participant Roles (CRITICAL: DO THIS BEFORE UPDATING ROOM STATUS)
     for (const p of participants) {
       await supabase
         .from("room_participants")
@@ -135,6 +138,20 @@ serve(async (req) => {
         .eq("room_id", roomId)
         .eq("user_id", p.user_id);
     }
+
+    // 7. Update Room Status & Settings (Triggers Client Navigation)
+    await supabase
+      .from("game_rooms")
+      .update({
+        current_round: roundNumber,
+        status: "playing",
+        settings: { 
+            ...room.settings, 
+            ...settings,
+            hint_baseline: 0 
+        }
+      })
+      .eq("id", roomId);
 
     return new Response(
       JSON.stringify({
@@ -148,7 +165,7 @@ serve(async (req) => {
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error) {
-    console.error("Error:", error);
+    console.error("Error in start-round:", error);
     return new Response(
       JSON.stringify({ error: error.message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

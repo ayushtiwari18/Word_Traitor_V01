@@ -74,7 +74,6 @@ const Discussion = () => {
   };
 
   useEffect(() => {
-    // Get an initial offset; timer math uses it.
     syncServerTime();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -175,7 +174,7 @@ const Discussion = () => {
           setGameResult(roomData.settings.gameResult);
         }
 
-        // Restore timer from persisted start time (prevents refresh reset)
+        // Restore timer from persisted start time
         setTimeLeft(computeTimeLeft(roomData?.settings?.voteSessionStartedAt));
 
         // Ensure there's a start time persisted once (host only)
@@ -188,13 +187,11 @@ const Discussion = () => {
 
         setPlayers(participants || []);
 
-        // Check if current player is a spectator (eliminated)
         const currentParticipant = participants?.find(p => p.user_id === profileId);
         if (currentParticipant?.is_alive === false) {
           setIsSpectator(true);
         }
 
-        // Get list of eliminated players
         const eliminated = participants?.filter(p => p.is_alive === false) || [];
         setEliminatedPlayers(eliminated.map(p => p.user_id));
 
@@ -222,6 +219,7 @@ const Discussion = () => {
           setHints([]);
         }
 
+        // RLS DISABLED: Host/Everyone can see roles to check traitor
         const { data: secretsData } = await supabase
           .from("room_participants")
           .select("user_id, role")
@@ -231,10 +229,8 @@ const Discussion = () => {
         const traitor = secretsData?.[0];
         if (traitor) {
           setTraitorId(traitor.user_id);
-          console.log("🔍 Traitor identified:", traitor.user_id);
         }
 
-        // If vote session changed (e.g. host continued to next voting round), reset local vote UI
         if (lastVoteSessionRef.current !== null && lastVoteSessionRef.current !== nextVoteSession) {
           setVotes([]);
           setMyVote(null);
@@ -297,30 +293,43 @@ const Discussion = () => {
     }
   };
 
+  // ✅ VOTE TALLY & ELIMINATION LOGIC
   useEffect(() => {
     if (!room || !players.length) return;
 
-    // Only count active players (not spectators) for voting
     const activePlayers = players.filter(p => p.is_alive !== false);
     const totalActivePlayers = activePlayers.length;
     const totalVotes = votes.length;
 
+    // Check if voting is complete (everyone has voted)
     if (totalVotes >= totalActivePlayers && totalActivePlayers > 0 && !votingComplete) {
       const voteCounts = {};
       votes.forEach(v => {
         voteCounts[v.voted_user_id] = (voteCounts[v.voted_user_id] || 0) + 1;
       });
 
+      // Find max votes
       let maxVotes = 0;
-      let mostVoted = null;
-      Object.entries(voteCounts).forEach(([odId, count]) => {
-        if (count > maxVotes) {
-          maxVotes = count;
-          mostVoted = odId;
-        }
+      Object.values(voteCounts).forEach(count => {
+        if (count > maxVotes) maxVotes = count;
       });
 
-      const votedPlayerData = players.find(p => p.user_id === mostVoted);
+      // Find all candidates with maxVotes (handling ties)
+      const topCandidates = Object.keys(voteCounts).filter(id => voteCounts[id] === maxVotes);
+
+      let eliminatedUserId = null;
+
+      if (topCandidates.length === 1) {
+        // Clear winner
+        eliminatedUserId = topCandidates[0];
+      } else {
+        // TIE: Randomly pick one from the top candidates
+        const randomIndex = Math.floor(Math.random() * topCandidates.length);
+        eliminatedUserId = topCandidates[randomIndex];
+        console.log("🎲 Tie detected! Randomly eliminating:", eliminatedUserId);
+      }
+
+      const votedPlayerData = players.find(p => p.user_id === eliminatedUserId);
       setVotedPlayer(votedPlayerData);
       setVotingComplete(true);
       setShowResults(true);
@@ -338,6 +347,7 @@ const Discussion = () => {
     }
   }, [votes, players, room, votingComplete, traitorId]);
 
+  // ✅ GAME OVER LOGIC (2 Players Left)
   useEffect(() => {
     if (!room || !traitorId || !players.length) return;
     if (!isHostNow) return;
@@ -385,7 +395,6 @@ const Discussion = () => {
       )
       .subscribe();
 
-    // Subscribe to room status changes (for back to lobby and phase transitions)
     const roomChannel = supabase
       .channel(`room_status_${roomCode}`)
       .on(
@@ -398,14 +407,12 @@ const Discussion = () => {
         (payload) => {
           if (payload.new?.room_code !== roomCode?.toUpperCase()) return;
 
-          // Navigate to lobby if room reset
           if (payload.new?.status === "waiting") {
             navigate(`/lobby/${roomCode}`, {
               state: { playerName, isHost: payload.new?.host_id === profileId, profileId },
             });
           }
 
-          // Navigate to hint drop phase (when innocent voted out, game continues)
           if (payload.new?.status === "hint_drop") {
             const isHostFromPayload = payload.new?.host_id === profileId;
             navigate(`/hint/${roomCode}`, {
@@ -414,7 +421,6 @@ const Discussion = () => {
           }
 
           if (payload.new?.status === "finished") {
-            // Pull fresh room data through the main fetch effect by nudging local state
             setRoom((prev) => ({ ...(prev || {}), status: "finished", settings: payload.new?.settings }));
             if (payload.new?.settings?.gameResult) {
               setGameResult(payload.new.settings.gameResult);
@@ -432,7 +438,6 @@ const Discussion = () => {
       )
       .subscribe();
 
-    // Subscribe to participant changes (for spectator updates)
     const participantsChannel = supabase
       .channel(`participants_${roomCode}`)
       .on(
@@ -443,7 +448,6 @@ const Discussion = () => {
           table: "room_participants",
         },
         async () => {
-          // Refresh participants to get updated spectator status
           const { data: participants } = await supabase
             .from("room_participants")
             .select("*, profiles!room_participants_user_id_fkey(username)")
@@ -451,13 +455,11 @@ const Discussion = () => {
 
           setPlayers(participants || []);
 
-          // Check if current player became a spectator (is_alive === false)
           const currentParticipant = participants?.find(p => p.user_id === profileId);
           if (currentParticipant?.is_alive === false) {
             setIsSpectator(true);
           }
 
-          // Update eliminated players list
           const eliminated = participants?.filter(p => p.is_alive === false) || [];
           setEliminatedPlayers(eliminated.map(p => p.user_id));
         }
@@ -496,23 +498,17 @@ const Discussion = () => {
 
   const handleVote = async (votedForId) => {
     if (!profileId || !room || myVote || votingComplete || isSpectator) {
-      console.log("Vote blocked:", { profileId, room: !!room, myVote, votingComplete, isSpectator });
       return;
     }
 
-    console.log("Submitting vote:", { room_id: room.id, voter_id: profileId, voted_user_id: votedForId });
-
-    const { data, error } = await supabase.from("game_votes").insert({
+    const { error } = await supabase.from("game_votes").insert({
       room_id: room.id,
       voter_id: profileId,
       voted_user_id: votedForId,
       round_number: voteSessionRef.current,
-    }).select();
+    });
 
-    if (error) {
-      console.error("Vote error:", error);
-    } else {
-      console.log("Vote success:", data);
+    if (!error) {
       setMyVote(votedForId);
     }
   };
@@ -534,24 +530,17 @@ const Discussion = () => {
 
   const isTraitor = votedPlayer?.user_id === traitorId;
 
-  // Handle going back to lobby (when traitor is caught)
   const handleBackToLobby = async () => {
     if (!room) return;
-
     try {
-      // Reset game state - clear votes, hints, and reset room status
       await supabase.from("game_votes").delete().eq("room_id", room.id);
       await supabase.from("game_hints").delete().eq("room_id", room.id);
       await supabase.from("chat_messages").delete().eq("room_id", room.id);
       await supabase.from("round_secrets").delete().eq("room_id", room.id);
-
-      // Reset all participants to alive
       await supabase
         .from("room_participants")
         .update({ is_alive: true })
         .eq("room_id", room.id);
-
-      // Update room status to waiting
       await supabase
         .from("game_rooms")
         .update({
@@ -574,23 +563,19 @@ const Discussion = () => {
     }
   };
 
-  // Handle continuing the game when an innocent is kicked
-  // Move everyone to hint drop phase for 2 new hints, then back to voting
   const handleContinueGame = async () => {
     if (!room || !votedPlayer) return;
-
-    // Only host should advance the next phase for everyone
     if (!isHostNow) return;
 
     try {
-      // Mark the voted player as eliminated (spectator)
+      // Mark the voted player as eliminated
       await supabase
         .from("room_participants")
         .update({ is_alive: false })
         .eq("room_id", room.id)
         .eq("user_id", votedPlayer.user_id);
 
-      // After elimination, check if game should immediately end (2 alive with traitor)
+      // Check win condition immediately after elimination
       const { data: updatedParticipants } = await supabase
         .from("room_participants")
         .select("user_id, is_alive, role")
@@ -598,6 +583,7 @@ const Discussion = () => {
 
       const alivePlayers = (updatedParticipants || []).filter(p => p.is_alive !== false);
       const traitorAlive = alivePlayers.some(p => p.user_id === traitorId || p.role === "traitor");
+      
       if (alivePlayers.length <= 2 && traitorAlive) {
         await endGame({
           winner: "traitor",
@@ -607,24 +593,12 @@ const Discussion = () => {
         return;
       }
 
-      // Clear old hints for fresh hint round
-      await supabase
-        .from("game_hints")
-        .delete()
-        .eq("room_id", room.id);
+      await supabase.from("game_hints").delete().eq("room_id", room.id);
+      await supabase.from("game_votes").delete().eq("room_id", room.id).eq("round_number", voteSessionRef.current);
 
-      // Clear votes for this session (next session will be fresh)
-      await supabase
-        .from("game_votes")
-        .delete()
-        .eq("room_id", room.id)
-        .eq("round_number", voteSessionRef.current);
-
-      // Advance vote session so next discussion round uses fresh votes
       const nextSession = (voteSessionRef.current || 1) + 1;
       const hintStartedAt = await getServerNowIso();
 
-      // Update room to hint_drop phase with new hint round
       await supabase
         .from("game_rooms")
         .update({
@@ -632,14 +606,13 @@ const Discussion = () => {
           settings: {
             ...(room.settings || {}),
             voteSession: nextSession,
-            hintRound: nextSession, // Track which hint round we're in
+            hintRound: nextSession,
             hintStartedAt,
-            voteSessionStartedAt: null, // Will be set when returning to discussion
+            voteSessionStartedAt: null,
           },
         })
         .eq("id", room.id);
 
-      // Navigate to hint drop phase
       navigate(`/hint/${roomCode}`, {
         state: { playerName, isHost: true, profileId },
       });
@@ -648,7 +621,6 @@ const Discussion = () => {
     }
   };
 
-  // If game is ended (either by vote or by 2-players-left), show final result screen
   if (gameResult?.winner) {
     const traitorName = traitorId ? getPlayerName(traitorId) : "Unknown";
     const citizensWon = gameResult.winner === "citizens";

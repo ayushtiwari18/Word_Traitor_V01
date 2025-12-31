@@ -26,6 +26,10 @@ const HintDrop = () => {
   const [isSpectator, setIsSpectator] = useState(false);
   const timerRef = useRef(null);
   const hasHandledTimeUp = useRef(false);
+  
+  // 🛡️ RACE CONDITION FIX: Guard against multiple transition calls
+  const hasMovedToDiscussion = useRef(false);
+  
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
   const serverOffsetRef = useRef(0);
 
@@ -87,6 +91,9 @@ const HintDrop = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        // Reset guard on load
+        hasMovedToDiscussion.current = false;
+
         if (!profileId) {
           console.error("No profileId found");
           navigate("/");
@@ -278,6 +285,10 @@ const HintDrop = () => {
 
   const moveToDiscussion = async () => {
     if (!room) return;
+    
+    // 🛡️ Guard against double submission/transition
+    if (hasMovedToDiscussion.current) return;
+    hasMovedToDiscussion.current = true;
 
     const voteSessionStartedAt = await getServerNowIso();
     const { error } = await supabase
@@ -291,7 +302,10 @@ const HintDrop = () => {
       })
       .eq("id", room.id);
 
-    if (!error) {
+    if (error) {
+       console.error("Error moving to discussion:", error);
+       hasMovedToDiscussion.current = false; // Reset on error
+    } else {
       navigate(`/discussion/${roomCode}`, { state: { playerName, isHost, profileId } });
     }
   };
