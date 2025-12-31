@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabaseClient";
 import { leaveGameRoom } from "@/lib/gameUtils";
+import { useRoomPresence } from "@/lib/useRoomPresence";
 
 const HintDrop = () => {
   const { roomCode } = useParams();
@@ -36,6 +37,9 @@ const HintDrop = () => {
 
   // Compute "current" isHost status from room data
   const isHostNow = !!(room?.host_id && profileId && room.host_id === profileId);
+
+  // 📡 PRESENCE HOOK
+  useRoomPresence(roomCode, room?.id, profileId, isHostNow);
 
   useEffect(() => {
     serverOffsetRef.current = serverOffsetMs;
