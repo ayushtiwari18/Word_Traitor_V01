@@ -93,12 +93,23 @@ export const promoteNewHost = async (roomId, oldHostId, onlineUserIds = []) => {
 
     // Pick the oldest online player
     const newHost = validCandidates[0];
-    console.log(`👑 Auto-promoting new host via Presence: ${newHost.user_id}`);
+    console.log(`👑 Attempting to promote new host via Presence: ${newHost.user_id}`);
 
-    await supabase
+    // ATOMIC UPDATE: Only update if the host is STILL the old host.
+    // This prevents race conditions where multiple clients try to promote different people.
+    const { error, count } = await supabase
       .from("game_rooms")
       .update({ host_id: newHost.user_id })
-      .eq("id", roomId);
+      .eq("id", roomId)
+      .eq("host_id", oldHostId); // CRITICAL: Optimistic concurrency control
+
+    if (error) {
+       console.error("Error executing host promotion:", error);
+    } else if (count === 0) {
+       console.log("ℹ️ Host promotion skipped: Host already changed by another client.");
+    } else {
+       console.log(`✅ Successfully promoted ${newHost.user_id} to host.`);
+    }
 
   } catch (err) {
     console.error("Error promoting new host:", err);
