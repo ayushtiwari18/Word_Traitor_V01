@@ -9,6 +9,27 @@ const corsHeaders = {
 // 🛡️ FALLBACK WORDS
 // Ensures game starts even if database 'word_pairs' table is empty or fails.
 const FALLBACK_WORDS = [
+  { civilian_word: "Silent Desire", traitor_word: "Unspoken Thought", difficulty: "hard_18plus" },
+  { civilian_word: "Desperate Texts", traitor_word: "Multiple Messages", difficulty: "medium_18plus" },
+  { civilian_word: "Late Night Regret", traitor_word: "Second Thoughts", difficulty: "hard_18plus" },
+  { civilian_word: "Sexual Tension", traitor_word: "Awkward Silence", difficulty: "hard_18plus" },
+  { civilian_word: "Nudes", traitor_word: "Photos", difficulty: "hard_18plus" },
+  { civilian_word: "Touch", traitor_word: "Tap", difficulty: "easy_18plus" },
+  { civilian_word: "Sexy", traitor_word: "Hot", difficulty: "easy_18plus" },
+  { civilian_word: "Bedroom Politics", traitor_word: "Relationship Rules", difficulty: "easy_18plus" },
+  { civilian_word: "Makeout", traitor_word: "Flirting", difficulty: "easy_18plus" },
+  { civilian_word: "Private Chat", traitor_word: "Group Chat", difficulty: "easy_18plus" },
+  { civilian_word: "Lingerie", traitor_word: "Underwear", difficulty: "easy_18plus" },
+  { civilian_word: "Condom", traitor_word: "Balloon", difficulty: "easy_18plus" },
+  { civilian_word: "Kink", traitor_word: "Preference", difficulty: "hard_18plus" },
+  { civilian_word: "Fetish", traitor_word: "Interest", difficulty: "hard_18plus" },
+  { civilian_word: "Shame", traitor_word: "Embarrassment", difficulty: "hard_18plus" },
+  { civilian_word: "Bedroom Eyes", traitor_word: "Eye Contact", difficulty: "medium_18plus" },
+  { civilian_word: "Heat", traitor_word: "Energy", difficulty: "medium_18plus" },
+  { civilian_word: "Physical Attraction", traitor_word: "Mental Attraction", difficulty: "medium_18plus" },
+  { civilian_word: "Dominance", traitor_word: "Control", difficulty: "medium_18plus" },
+  { civilian_word: "Secret Crush", traitor_word: "Secret Friend", difficulty: "medium_18plus" },
+  { civilian_word: "Morning After", traitor_word: "Next Day", difficulty: "hard_18plus" },
   { civilian_word: "Sun", traitor_word: "Moon", difficulty: "easy" },
   { civilian_word: "Coffee", traitor_word: "Tea", difficulty: "medium" },
   { civilian_word: "Beach", traitor_word: "Desert", difficulty: "medium" },
@@ -73,6 +94,7 @@ serve(async (req) => {
     // 3. Select Word Pair
     let selectedPair = null;
     let wordSource: "db" | "seeded_fallback" | "fallback" = "fallback";
+    let wordDebug: Record<string, unknown> = {};
     
     // Try to fetch from DB with filters
     try {
@@ -84,12 +106,18 @@ serve(async (req) => {
           "id, category, civilian_word, civilian_word_description, traitor_word, traitor_word_description"
         );
 
-      const desiredCategory = settings?.wordLevel;
+      const level = settings?.wordLevel || "medium";
+      const adultWords = !!settings?.adultWords;
 
-      // 1) Try filtered pool first (if category provided)
-      if (desiredCategory) {
+      // Your DB uses categories like: easy_18plus / medium_18plus / hard_18plus.
+      // Non-adult sets are typically: easy / medium / hard.
+      const primaryCategory = adultWords ? `${level}_18plus` : level;
+      wordDebug = { level, adultWords, primaryCategory };
+
+      // 1) Try primary category first
+      {
         const { data: filteredPairs, error: filteredErr } = await baseQuery
-          .eq("category", desiredCategory)
+          .eq("category", primaryCategory)
           .limit(200);
 
         if (filteredErr) {
@@ -98,10 +126,58 @@ serve(async (req) => {
           selectedPair =
             filteredPairs[Math.floor(Math.random() * filteredPairs.length)];
           wordSource = "db";
+          wordDebug = { ...wordDebug, filteredCount: filteredPairs.length };
         }
       }
 
-      // 2) If filtered pool empty (or no category), fall back to any word pair from DB
+      // 2) If primary category empty, broaden within adult/non-adult pools
+      if (!selectedPair) {
+        if (adultWords) {
+          const { data: adultPairs, error: adultErr } = await baseQuery
+            .ilike("category", "%_18plus")
+            .limit(200);
+
+          if (adultErr) {
+            console.error("Error querying word_pairs (adult pool):", adultErr);
+          } else if (adultPairs && adultPairs.length > 0) {
+            selectedPair = adultPairs[Math.floor(Math.random() * adultPairs.length)];
+            wordSource = "db";
+            wordDebug = { ...wordDebug, adultPoolCount: adultPairs.length };
+          }
+        } else {
+          // Prefer same difficulty without _18plus.
+          const { data: levelPairs, error: levelErr } = await baseQuery
+            .ilike("category", `${level}%`)
+            .not("category", "ilike", "%_18plus")
+            .limit(200);
+
+          if (levelErr) {
+            console.error("Error querying word_pairs (level pool):", levelErr);
+          } else if (levelPairs && levelPairs.length > 0) {
+            selectedPair = levelPairs[Math.floor(Math.random() * levelPairs.length)];
+            wordSource = "db";
+            wordDebug = { ...wordDebug, levelPoolCount: levelPairs.length };
+          }
+
+          // If still empty, allow any non-adult word.
+          if (!selectedPair) {
+            const { data: nonAdultPairs, error: nonAdultErr } = await baseQuery
+              .not("category", "ilike", "%_18plus")
+              .limit(200);
+
+            if (nonAdultErr) {
+              console.error("Error querying word_pairs (non-adult pool):", nonAdultErr);
+            } else if (nonAdultPairs && nonAdultPairs.length > 0) {
+              selectedPair =
+                nonAdultPairs[Math.floor(Math.random() * nonAdultPairs.length)];
+              wordSource = "db";
+              wordDebug = { ...wordDebug, nonAdultPoolCount: nonAdultPairs.length };
+            }
+          }
+        }
+      }
+
+      // 3) Last attempt: any word pair from DB
       if (!selectedPair) {
         const { data: anyPairs, error: anyErr } = await baseQuery.limit(200);
 
@@ -110,6 +186,7 @@ serve(async (req) => {
         } else if (anyPairs && anyPairs.length > 0) {
           selectedPair = anyPairs[Math.floor(Math.random() * anyPairs.length)];
           wordSource = "db";
+          wordDebug = { ...wordDebug, anyCount: anyPairs.length };
         } else {
           console.warn("⚠️ No word_pairs found in DB.");
 
@@ -131,6 +208,7 @@ serve(async (req) => {
             if (seededPairs && seededPairs.length > 0) {
               selectedPair = seededPairs[Math.floor(Math.random() * seededPairs.length)];
               wordSource = "seeded_fallback";
+              wordDebug = { ...wordDebug, seededCount: seededPairs.length };
             }
           }
         }
@@ -208,6 +286,7 @@ serve(async (req) => {
         wordSource,
         wordPairId: selectedPair?.id || null,
         wordCategory: selectedPair?.category || null,
+        wordDebug,
         numPlayers: participants.length,
         numTraitors: traitorIds.length,
       }),

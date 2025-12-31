@@ -20,6 +20,8 @@ const HintDrop = () => {
   const [hint, setHint] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [room, setRoom] = useState(null);
+  const [secretWord, setSecretWord] = useState(null);
+  const [loadingWord, setLoadingWord] = useState(true);
   const [hintTime, setHintTime] = useState(30);
   const [timeLeft, setTimeLeft] = useState(30);
   const [players, setPlayers] = useState([]);
@@ -108,6 +110,8 @@ const HintDrop = () => {
           return;
         }
 
+        setLoadingWord(true);
+
         // Get room
         const { data: roomData, error: roomErr } = await supabase
           .from("game_rooms")
@@ -123,6 +127,29 @@ const HintDrop = () => {
         const time = roomData.settings?.hintTime || 30;
         setHintTime(time);
         setTimeLeft(computeTimeLeft(roomData?.settings?.hintStartedAt, time));
+
+        // Load the player's assigned secret word for the current round.
+        // This fixes cases where players land on HintDrop directly (refresh/redirect)
+        // and never saw the Word Reveal screen.
+        try {
+          const roundNumber = roomData.current_round || 1;
+          const { data: secretRow, error: secretErr } = await supabase
+            .from("round_secrets")
+            .select("secret_word")
+            .eq("room_id", roomData.id)
+            .eq("user_id", profileId)
+            .eq("round_number", roundNumber)
+            .single();
+
+          if (secretErr) {
+            // Not fatal; can happen briefly if round is starting.
+            setSecretWord(null);
+          } else {
+            setSecretWord(secretRow?.secret_word || null);
+          }
+        } finally {
+          setLoadingWord(false);
+        }
 
         // Ensure hint phase start is persisted once (host only).
         // Use computed host status (host can change via presence).
@@ -178,6 +205,7 @@ const HintDrop = () => {
         fetchSubmittedHints(roomData.id);
       } catch (error) {
         console.error("Error:", error);
+        setLoadingWord(false);
       }
     };
 
@@ -396,6 +424,17 @@ const HintDrop = () => {
               <p className="text-muted-foreground text-center mb-8">
                 Give a one-word hint related to your secret word
               </p>
+
+              <div className="bg-background/50 rounded-xl p-4 mb-6 border border-border/40 text-center">
+                <p className="text-xs text-muted-foreground mb-1">Your word</p>
+                {loadingWord ? (
+                  <p className="text-sm text-muted-foreground">Loading…</p>
+                ) : secretWord ? (
+                  <p className="text-xl font-heading font-bold text-primary">{secretWord}</p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Waiting for word assignment…</p>
+                )}
+              </div>
             </>
           )}
 
@@ -410,14 +449,14 @@ const HintDrop = () => {
                   onChange={(e) => setHint(e.target.value)}
                   className="text-center text-lg py-6 bg-background/50 border-border/40"
                   maxLength={30}
-                  disabled={timeLeft <= 0}
+                  disabled={timeLeft <= 0 || loadingWord || !secretWord}
                 />
                 <Button
                   variant="neonCyan"
                   size="lg"
                   className="w-full gap-2"
                   onClick={handleSubmitHint}
-                  disabled={!hint.trim() || timeLeft <= 0}
+                  disabled={!hint.trim() || timeLeft <= 0 || loadingWord || !secretWord}
                 >
                   <Send className="w-5 h-5" />
                   Submit Hint

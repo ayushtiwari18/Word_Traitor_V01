@@ -227,19 +227,6 @@ const Lobby = () => {
 
       console.log("🎮 Game started:", data);
 
-      // update status to 'playing' & save final settings
-      const { error } = await supabase
-        .from("game_rooms")
-        .update({
-          status: "playing",
-          settings,
-        })
-        .eq("id", room.id);
-
-      if (error) {
-        console.error("Error updating game status:", error);
-      }
-
       // 🔀 redirect to word reveal page (next phase)
       navigate(`/word/${roomCode}`, {
         state: { playerName, currentIsHost, profileId },
