@@ -35,13 +35,6 @@ export const useRoomPresence = (roomCode, roomId, profileId, isHost) => {
         const onlineUserIds = Object.keys(newState);
         console.log("🟢 Presence Sync:", onlineUserIds);
 
-        // Avoid host-election races during initial subscribe/track.
-        // On first sync, presence can be empty (before track propagates), which can
-        // incorrectly mark the host as offline and trigger a bad promotion.
-        if (!hasTrackedRef.current || !onlineUserIds.includes(profileId)) {
-          return;
-        }
-
         // LOGIC: Host Transfer
         // 1. Fetch current host from DB to be sure
         const { data: roomData } = await supabase
@@ -53,15 +46,13 @@ export const useRoomPresence = (roomCode, roomId, profileId, isHost) => {
         const currentHostId = roomData?.host_id;
 
         // 2. If the DB says "Host X", but "Host X" is NOT in onlineUserIds...
-        if (currentHostId && !onlineUserIds.includes(currentHostId)) {
+        // AND we have a valid list of online users (at least 1 person is online)
+        if (currentHostId && !onlineUserIds.includes(currentHostId) && onlineUserIds.length > 0) {
           console.warn(`⚠️ Host ${currentHostId} is offline! Initiating transfer.`);
           
           // 3. ELECTION: The oldest remaining online player performs the update
-          const randomDelay = Math.floor(Math.random() * 2000);
-          setTimeout(() => {
-            // Pass onlineUserIds to ensure we pick an online host
-            promoteNewHost(roomId, currentHostId, onlineUserIds);
-          }, randomDelay);
+          // No delay needed due to atomic update in gameUtils
+          promoteNewHost(roomId, currentHostId, onlineUserIds);
         }
 
         // LOGIC: Ghost Cleanup (DISABLED TEMPORARILY)
