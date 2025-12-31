@@ -56,26 +56,41 @@ export const leaveGameRoom = async (roomId, profileId, isHost) => {
 };
 
 /**
- * Promotes the oldest participant to be the new host.
- * Used when Presence detects the host has disconnected properly or improperly.
+ * Promotes the oldest ONLINE participant to be the new host.
+ * Used when Presence detects the host has disconnected.
+ * 
+ * @param {string} roomId 
+ * @param {string} oldHostId - The ID of the host who left
+ * @param {Array<string>} onlineUserIds - List of currently online user IDs (from Presence)
  */
-export const promoteNewHost = async (roomId, excludeUserId = null) => {
+export const promoteNewHost = async (roomId, oldHostId, onlineUserIds = []) => {
   try {
-    // Fetch all participants
+    // Fetch all participants from DB
     const { data: players } = await supabase
       .from("room_participants")
       .select("user_id, created_at")
       .eq("room_id", roomId)
-      .neq("user_id", excludeUserId || "00000000-0000-0000-0000-000000000000") // Exclude the old host if known
+      .neq("user_id", oldHostId || "00000000-0000-0000-0000-000000000000") // Exclude the old host
       .order("created_at", { ascending: true });
 
     if (!players || players.length === 0) {
-      console.log("No candidates for host promotion. Room might be empty.");
-      // Optional: Delete room if truly empty, but risky if fetch failed
+      console.log("No candidates for host promotion.");
       return;
     }
 
-    const newHost = players[0];
+    // CRITICAL FIX: Filter candidates to ensure they are actually ONLINE.
+    // If onlineUserIds is empty/null, we fall back to DB list (risky, but better than nothing).
+    const validCandidates = (onlineUserIds && onlineUserIds.length > 0)
+      ? players.filter(p => onlineUserIds.includes(p.user_id))
+      : players;
+
+    if (validCandidates.length === 0) {
+      console.warn("⚠️ No ONLINE candidates found to promote. Room might be dead.");
+      return;
+    }
+
+    // Pick the oldest online player
+    const newHost = validCandidates[0];
     console.log(`👑 Auto-promoting new host via Presence: ${newHost.user_id}`);
 
     await supabase
