@@ -75,23 +75,44 @@ serve(async (req) => {
     
     // Try to fetch from DB with filters
     try {
-        let query = supabase.from("word_pairs").select("*");
-        
-        // Apply filters if columns exist
-        if (settings?.wordLevel) {
-            query = query.eq("difficulty", settings.wordLevel);
+      // NOTE: Your schema uses `word_pairs.category` (not `difficulty`).
+      // If we query a non-existent column, PostgREST errors and we fall back.
+      const baseQuery = supabase
+        .from("word_pairs")
+        .select(
+          "id, category, civilian_word, civilian_word_description, traitor_word, traitor_word_description"
+        );
+
+      const desiredCategory = settings?.wordLevel;
+
+      // 1) Try filtered pool first (if category provided)
+      if (desiredCategory) {
+        const { data: filteredPairs, error: filteredErr } = await baseQuery
+          .eq("category", desiredCategory)
+          .limit(200);
+
+        if (filteredErr) {
+          console.error("Error querying word_pairs (filtered):", filteredErr);
+        } else if (filteredPairs && filteredPairs.length > 0) {
+          selectedPair =
+            filteredPairs[Math.floor(Math.random() * filteredPairs.length)];
         }
-        
-        // Limit query size
-        const { data: wordPairs, error: wordErr } = await query.limit(50);
-        
-        if (!wordErr && wordPairs && wordPairs.length > 0) {
-            selectedPair = wordPairs[Math.floor(Math.random() * wordPairs.length)];
+      }
+
+      // 2) If filtered pool empty (or no category), fall back to any word pair from DB
+      if (!selectedPair) {
+        const { data: anyPairs, error: anyErr } = await baseQuery.limit(200);
+
+        if (anyErr) {
+          console.error("Error querying word_pairs:", anyErr);
+        } else if (anyPairs && anyPairs.length > 0) {
+          selectedPair = anyPairs[Math.floor(Math.random() * anyPairs.length)];
         } else {
-             console.warn("⚠️ No words found in DB matching criteria. Using fallback.");
+          console.warn("⚠️ No word_pairs found in DB. Using fallback.");
         }
+      }
     } catch (e) {
-        console.error("Error querying word_pairs:", e);
+      console.error("Error querying word_pairs:", e);
     }
     
     // Use Fallback if DB failed or empty
