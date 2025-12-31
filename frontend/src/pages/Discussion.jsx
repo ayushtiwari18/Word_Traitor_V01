@@ -476,7 +476,7 @@ const Discussion = () => {
       .on(
         "postgres_changes",
         {
-          event: "UPDATE",
+          event: "*", // Changed from "UPDATE" to "*" to catch DELETEs (ghost cleanup)
           schema: "public",
           table: "room_participants",
         },
