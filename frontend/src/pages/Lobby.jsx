@@ -20,6 +20,7 @@ import {
   SelectItem,
 } from "@/components/ui/select";
 import { supabase } from "@/lib/supabaseClient";
+import { useRoomPresence } from "@/lib/useRoomPresence";
 
 const Lobby = () => {
   const { roomCode } = useParams();
@@ -49,6 +50,9 @@ const Lobby = () => {
     anonymousVoting: false,
   });
   const [currentIsHost, setCurrentIsHost] = useState(isHost || false);
+
+  // 📡 PRESENCE HOOK: Handles host transfer & ghost cleanup
+  useRoomPresence(roomCode, room?.id, profileId, currentIsHost);
 
   // 🔧 Update settings in Supabase when host changes them
   const updateGameSettings = async (newSettings) => {
