@@ -387,13 +387,42 @@ const Discussion = () => {
     const alivePlayers = players.filter(p => p.is_alive !== false);
     const traitorAlive = alivePlayers.some(p => p.user_id === traitorId);
 
-    // If only 2 players remain alive and traitor is among them, traitor wins.
-    if (alivePlayers.length <= 2 && traitorAlive) {
-      endGame({
-        winner: "traitor",
-        reason: "two_players_left",
-        traitorId,
-      });
+    // If exactly 2 players remain alive:
+    if (alivePlayers.length === 2) {
+      if (traitorAlive) {
+        // Traitor + 1 Citizen = Traitor Wins
+        endGame({
+          winner: "traitor",
+          reason: "two_players_left",
+          traitorId,
+        });
+      } else {
+        // 2 Citizens = Citizens Win
+        endGame({
+          winner: "citizens",
+          reason: "all_citizens_remain",
+          traitorId,
+        });
+      }
+    }
+
+    // If only 1 player left (edge case: everyone else left/eliminated)
+    if (alivePlayers.length === 1) {
+      if (traitorAlive) {
+        // Only traitor left = Traitor Wins
+        endGame({
+          winner: "traitor",
+          reason: "only_traitor_remains",
+          traitorId,
+        });
+      } else {
+        // Only 1 citizen left = Citizens Win (traitor was eliminated earlier)
+        endGame({
+          winner: "citizens",
+          reason: "only_citizen_remains",
+          traitorId,
+        });
+      }
     }
   }, [players, traitorId, room, isHostNow]);
 
@@ -635,12 +664,38 @@ const Discussion = () => {
       const alivePlayers = (updatedParticipants || []).filter(p => p.is_alive !== false);
       const traitorAlive = alivePlayers.some(p => p.user_id === traitorId || p.role === "traitor");
       
-      if (alivePlayers.length <= 2 && traitorAlive) {
-        await endGame({
-          winner: "traitor",
-          reason: "two_players_left",
-          traitorId,
-        });
+      // NEW LOGIC: Check 2-player endgame conditions
+      if (alivePlayers.length === 2) {
+        if (traitorAlive) {
+          await endGame({
+            winner: "traitor",
+            reason: "two_players_left",
+            traitorId,
+          });
+        } else {
+          await endGame({
+            winner: "citizens",
+            reason: "all_citizens_remain",
+            traitorId,
+          });
+        }
+        return;
+      }
+
+      if (alivePlayers.length === 1) {
+        if (traitorAlive) {
+          await endGame({
+            winner: "traitor",
+            reason: "only_traitor_remains",
+            traitorId,
+          });
+        } else {
+          await endGame({
+            winner: "citizens",
+            reason: "only_citizen_remains",
+            traitorId,
+          });
+        }
         return;
       }
 
@@ -708,9 +763,11 @@ const Discussion = () => {
             </h1>
 
             <p className="text-muted-foreground mb-6">
-              {citizensWon
-                ? "The traitor has been eliminated."
-                : "Only two players remain. The traitor escapes."}
+              {gameResult.reason === "traitor_voted_out" && "The traitor has been eliminated."}
+              {gameResult.reason === "two_players_left" && "Only two players remain. The traitor escapes."}
+              {gameResult.reason === "all_citizens_remain" && "Only citizens remain. The traitor was eliminated!"}
+              {gameResult.reason === "only_traitor_remains" && "The traitor outlasted everyone!"}
+              {gameResult.reason === "only_citizen_remains" && "The last citizen standing wins!"}
             </p>
 
             <div className="bg-background/50 rounded-xl p-4 mb-6">
