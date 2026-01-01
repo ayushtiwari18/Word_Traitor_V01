@@ -12,7 +12,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/lib/supabaseClient"; // ensure supabase client is configured
+import { supabase } from "@/lib/supabaseClient"; 
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
 
 // Generate a random 6-letter room code
 const generateRoomCode = () => {
@@ -64,6 +66,57 @@ const Index = () => {
       setShowNameModal(true);
     }
   }, [searchParams]);
+
+  // Onboarding Tour
+  useEffect(() => {
+    const hasOnboarded = localStorage.getItem("has_onboarded_v1");
+    if (!hasOnboarded) {
+      // Delay to allow animations to complete
+      const timer = setTimeout(() => {
+        const driverObj = driver({
+          showProgress: true,
+          animate: true,
+          overlayColor: 'rgba(0,0,0,0.8)',
+          steps: [
+            { 
+              element: '#create-room-btn', 
+              popover: { 
+                title: 'Start a Game', 
+                description: 'Create a new room and become the host. Share the code with friends!',
+                side: "bottom", 
+                align: 'start' 
+              } 
+            },
+            { 
+              element: '#join-room-btn', 
+              popover: { 
+                title: 'Join a Game', 
+                description: 'Enter a room code if your friend already started a lobby.',
+                side: "bottom", 
+                align: 'start' 
+              } 
+            },
+            { 
+              element: '#feedback-trigger', 
+              popover: { 
+                title: 'We Listen!', 
+                description: 'Found a bug or have an idea? Click this floating button anytime.',
+                side: "left", 
+                align: 'end' 
+              } 
+            },
+          ],
+          onDestroyStarted: () => {
+             localStorage.setItem("has_onboarded_v1", "true");
+             driverObj.destroy();
+          }
+       });
+       driverObj.drive();
+      }, 1500); // 1.5s delay matches CSS animation duration
+
+      return () => clearTimeout(timer);
+    }
+  }, []);
 
   const autoJoinRoom = async (code, customName) => {
     // Prevent duplicate calls
@@ -453,6 +506,7 @@ const Index = () => {
         >
           {/* Create Room */}
           <button
+            id="create-room-btn"
             onClick={handleCreateRoom}
             className={cn(
               "group relative p-8 rounded-2xl border-2 bg-card/40 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all duration-300 backdrop-blur-md overflow-hidden"
@@ -472,6 +526,7 @@ const Index = () => {
 
           {/* Join Room */}
           <button
+            id="join-room-btn"
             onClick={() => setJoining(true)}
             className={cn(
               "group relative p-8 rounded-2xl border-2 bg-card/40 border-secondary/30 hover:border-secondary hover:bg-secondary/10 transition-all duration-300 backdrop-blur-md overflow-hidden"
