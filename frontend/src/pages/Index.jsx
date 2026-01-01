@@ -403,13 +403,7 @@ const Index = () => {
                       : "Join with random name"}
                   </Button>
 
-                  <Button
-                    onClick={handleSkipName}
-                    variant="outline"
-                    className="w-full border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800/50 hover:border-cyan-500/50 font-semibold py-6 text-lg transition-all"
-                  >
-                    Skip & Use Random Name
-                  </Button>
+                 
                 </div>
 
                 {/* Info Badge */}

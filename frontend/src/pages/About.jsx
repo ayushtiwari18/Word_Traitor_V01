@@ -8,13 +8,15 @@ const developers = [
   {
     name: "Ayush Tiwari",
     role: "Lead Developer",
+    image: "/Ayush.png",
     github: "https://github.com/ayushtiwari18",
-    linkedin: "#",
+    linkedin: "https://www.linkedin.com/in/tiwariaayush",
     initials: "AT"
   },
   {
     name: "Rishabh Agrawal",
     role: "Full Stack Developer",
+    image: "/Rishabh.jpeg",
     github: "https://github.com/Rishcode",
     linkedin: "https://www.linkedin.com/in/rishabhaagrawal/",
     initials: "RA"
@@ -22,6 +24,7 @@ const developers = [
   {
     name: "Archi Jain",
     role: "Full Stack Developer",
+    image: "/Archi.jpeg",
     github: "https://github.com/archijain23",
     linkedin: "http://www.linkedin.com/in/jainarchi",
     initials: "AJ"
@@ -92,7 +95,7 @@ const About = () => {
               <Card key={index} className="bg-slate-900/50 border-slate-800 hover:border-cyan-500/50 transition-all duration-300 group">
                 <CardHeader className="text-center">
                   <Avatar className="h-20 w-20 mx-auto mb-4 border-2 border-slate-700 group-hover:border-cyan-400 transition-colors">
-                    <AvatarImage src="" />
+                    <AvatarImage src={dev.image} />
                     <AvatarFallback className="bg-slate-800 text-cyan-400 text-xl font-bold">
                       {dev.initials}
                     </AvatarFallback>
