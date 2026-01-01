@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabaseClient"; 
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
+import { useMusic } from "@/contexts/MusicContext";
 
 // Generate a random 6-letter room code
 const generateRoomCode = () => {
@@ -53,6 +54,12 @@ const Index = () => {
   const [autoJoining, setAutoJoining] = useState(false);
   const [showNameModal, setShowNameModal] = useState(false);
   const [autoJoinRoomCode, setAutoJoinRoomCode] = useState("");
+  const { setPhase } = useMusic();
+
+  // Set Music Phase
+  useEffect(() => {
+    setPhase('lobby');
+  }, [setPhase]);
 
   // Auto-join functionality when URL has room parameter
   const hasAutoJoined = useRef(false);
