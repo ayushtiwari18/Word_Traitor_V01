@@ -13,18 +13,18 @@ const developers = [
     initials: "AT"
   },
   {
-    name: "Developer Two",
-    role: "Frontend Engineer",
-    github: "#",
-    linkedin: "#",
-    initials: "D2"
+    name: "Rishabh Agrawal",
+    role: "Full Stack Developer",
+    github: "https://github.com/Rishcode",
+    linkedin: "https://www.linkedin.com/in/rishabhaagrawal/",
+    initials: "RA"
   },
   {
-    name: "Developer Three",
-    role: "Backend Engineer",
-    github: "#",
-    linkedin: "#",
-    initials: "D3"
+    name: "Archi Jain",
+    role: "Full Stack Developer",
+    github: "https://github.com/archijain23",
+    linkedin: "http://www.linkedin.com/in/jainarchi",
+    initials: "AJ"
   }
 ];
 
