@@ -1,16 +1,10 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-// 🛡️ FALLBACK WORDS
-// Ensures game starts even if database 'word_pairs' table is empty or fails.
-const FALLBACK_WORDS = [
-
-];
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -18,261 +12,161 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    
-    if (!supabaseUrl || !supabaseServiceKey) {
-       throw new Error("Missing server configuration");
-    }
-    
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL") ?? "",
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
+    );
 
     const { roomId, settings, profileId } = await req.json();
 
     if (!roomId || !profileId) {
-      return new Response(
-        JSON.stringify({ error: "roomId and profileId are required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      throw new Error("Missing roomId or profileId");
     }
 
-    // 1. Get room info
-    const { data: room, error: roomErr } = await supabase
-      .from("game_rooms")
-      .select("id, host_id, status, current_round, settings")
-      .eq("id", roomId)
-      .single();
-
-    if (roomErr || !room) {
-      return new Response(
-        JSON.stringify({ error: "Room not found" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    if (room.host_id !== profileId) {
-      return new Response(
-        JSON.stringify({ error: "Unauthorized - only host can start the game" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // 2. Get all participants
-    const { data: participants, error: partErr } = await supabase
+    // 1. Fetch participants
+    const { data: participants, error: partError } = await supabase
       .from("room_participants")
       .select("user_id")
       .eq("room_id", roomId);
 
-    if (partErr || !participants || participants.length < 2) {
-       // Ideally we enforce 2+ players, but for testing we allow it
+    if (partError || !participants || participants.length < 2) {
+      throw new Error("Not enough players (minimum 2)");
     }
+
+    const userIds = participants.map((p) => p.user_id);
+    const playerCount = userIds.length;
     
-    // 3. Select Word Pair
-    let selectedPair = null;
-    let wordSource: "db" | "seeded_fallback" | "fallback" = "fallback";
-    let wordDebug: Record<string, unknown> = {};
-    
-    // Try to fetch from DB with filters
-    try {
-      // NOTE: Your schema uses `word_pairs.category` (not `difficulty`).
-      // If we query a non-existent column, PostgREST errors and we fall back.
-      const baseQuery = supabase
-        .from("word_pairs")
-        .select(
-          "id, category, civilian_word, civilian_word_description, traitor_word, traitor_word_description"
-        );
+    // Validate traitor count
+    let traitorCount = settings?.traitors || 1;
+    if (traitorCount >= playerCount) {
+      traitorCount = Math.max(1, Math.floor(playerCount / 2)); 
+    }
 
-      const level = settings?.wordLevel || "medium";
-      const adultWords = !!settings?.adultWords;
+    // 2. Assign roles
+    const shuffled = [...userIds].sort(() => Math.random() - 0.5);
+    const traitorIds = shuffled.slice(0, traitorCount);
+    const citizenIds = shuffled.slice(traitorCount);
 
-      // Your DB uses categories like: easy_18plus / medium_18plus / hard_18plus.
-      // Non-adult sets are typically: easy / medium / hard.
-      const primaryCategory = adultWords ? `${level}_18plus` : level;
-      wordDebug = { level, adultWords, primaryCategory };
+    const updates = [
+      ...traitorIds.map((uid) => ({
+        room_id: roomId,
+        user_id: uid,
+        role: "traitor",
+        is_alive: true,
+      })),
+      ...citizenIds.map((uid) => ({
+        room_id: roomId,
+        user_id: uid,
+        role: "citizen",
+        is_alive: true,
+      })),
+    ];
 
-      // 1) Try primary category first
-      {
-        const { data: filteredPairs, error: filteredErr } = await baseQuery
-          .eq("category", primaryCategory)
-          .limit(200);
+    const { error: roleError } = await supabase
+      .from("room_participants")
+      .upsert(updates, { onConflict: "room_id,user_id" });
 
-        if (filteredErr) {
-          console.error("Error querying word_pairs (filtered):", filteredErr);
-        } else if (filteredPairs && filteredPairs.length > 0) {
-          selectedPair =
-            filteredPairs[Math.floor(Math.random() * filteredPairs.length)];
-          wordSource = "db";
-          wordDebug = { ...wordDebug, filteredCount: filteredPairs.length };
-        }
+    if (roleError) throw roleError;
+
+    // 3. Select Word Pair (Strict Filtering)
+    // Priority 1: Exact match (Difficulty + Adult Setting)
+    // Priority 2: Fallback to ANY difficulty (keeping Adult Setting strict)
+    // Priority 3: Last resort (Any word), but try to respect adult setting if possible
+
+    let wordPair = null;
+    const difficulty = settings?.wordLevel || "medium";
+    const allowAdult = settings?.adultWords || false;
+
+    // Helper to fetch random word with filters
+    const fetchRandomWord = async (diff, adult) => {
+      let query = supabase.from("word_pairs").select("*");
+      
+      // Filter by difficulty if provided
+      if (diff) {
+        query = query.ilike("category", `${diff}%`);
       }
 
-      // 2) If primary category empty, broaden within adult/non-adult pools
-      if (!selectedPair) {
-        if (adultWords) {
-          const { data: adultPairs, error: adultErr } = await baseQuery
-            .ilike("category", "%_18plus")
-            .limit(200);
-
-          if (adultErr) {
-            console.error("Error querying word_pairs (adult pool):", adultErr);
-          } else if (adultPairs && adultPairs.length > 0) {
-            selectedPair = adultPairs[Math.floor(Math.random() * adultPairs.length)];
-            wordSource = "db";
-            wordDebug = { ...wordDebug, adultPoolCount: adultPairs.length };
-          }
-        } else {
-          // Prefer same difficulty without _18plus.
-          const { data: levelPairs, error: levelErr } = await baseQuery
-            .ilike("category", `${level}%`)
-            .not("category", "ilike", "%_18plus")
-            .limit(200);
-
-          if (levelErr) {
-            console.error("Error querying word_pairs (level pool):", levelErr);
-          } else if (levelPairs && levelPairs.length > 0) {
-            selectedPair = levelPairs[Math.floor(Math.random() * levelPairs.length)];
-            wordSource = "db";
-            wordDebug = { ...wordDebug, levelPoolCount: levelPairs.length };
-          }
-
-          // If still empty, allow any non-adult word.
-          if (!selectedPair) {
-            const { data: nonAdultPairs, error: nonAdultErr } = await baseQuery
-              .not("category", "ilike", "%_18plus")
-              .limit(200);
-
-            if (nonAdultErr) {
-              console.error("Error querying word_pairs (non-adult pool):", nonAdultErr);
-            } else if (nonAdultPairs && nonAdultPairs.length > 0) {
-              selectedPair =
-                nonAdultPairs[Math.floor(Math.random() * nonAdultPairs.length)];
-              wordSource = "db";
-              wordDebug = { ...wordDebug, nonAdultPoolCount: nonAdultPairs.length };
-            }
-          }
-        }
+      // STRICT Adult Filter
+      if (!adult) {
+        // Exclude anything labeled "18plus" or "adult"
+        query = query.not("category", "ilike", "%18plus%").not("category", "ilike", "%adult%");
+      } else {
+        // If adult is allowed, we specifically WANT adult words if they exist for this category
+        // OR we can be loose. Usually "18+ mode" means "include 18+", not "only 18+".
+        // But if the user selects "18+", they likely want spicy words.
+        // For now, let's just include everything if adult=true.
       }
 
-      // 3) Last attempt: any word pair from DB
-      if (!selectedPair) {
-        const { data: anyPairs, error: anyErr } = await baseQuery.limit(200);
+      // Get count first to pick random offset
+      const { count, error: countErr } = await query.select("*", { count: "exact", head: true });
+      
+      if (countErr || !count) return null;
 
-        if (anyErr) {
-          console.error("Error querying word_pairs:", anyErr);
-        } else if (anyPairs && anyPairs.length > 0) {
-          selectedPair = anyPairs[Math.floor(Math.random() * anyPairs.length)];
-          wordSource = "db";
-          wordDebug = { ...wordDebug, anyCount: anyPairs.length };
-        } else {
-          console.warn("⚠️ No word_pairs found in DB.");
+      const randomOffset = Math.floor(Math.random() * count);
+      const { data, error } = await query.select("*").range(randomOffset, randomOffset).single();
+      
+      return data;
+    };
 
-          // If the table exists but is empty, auto-seed with fallback words once.
-          // This keeps your source of truth as `word_pairs` without requiring a manual seed step.
-          const seedRows = FALLBACK_WORDS.map((w) => ({
-            category: w.difficulty,
-            civilian_word: w.civilian_word,
-            civilian_word_description: null,
-            traitor_word: w.traitor_word,
-            traitor_word_description: null,
-          }));
+    // Attempt 1: Exact Match
+    wordPair = await fetchRandomWord(difficulty, allowAdult);
 
-          const { error: seedErr } = await supabase.from("word_pairs").insert(seedRows);
-          if (seedErr) {
-            console.warn("⚠️ Could not seed word_pairs; will use fallback:", seedErr);
-          } else {
-            const { data: seededPairs } = await baseQuery.limit(200);
-            if (seededPairs && seededPairs.length > 0) {
-              selectedPair = seededPairs[Math.floor(Math.random() * seededPairs.length)];
-              wordSource = "seeded_fallback";
-              wordDebug = { ...wordDebug, seededCount: seededPairs.length };
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.error("Error querying word_pairs:", e);
+    // Attempt 2: Same adult setting, ANY difficulty (Fallback)
+    if (!wordPair) {
+      console.log("⚠️ No words found for difficulty, falling back to any difficulty (same adult setting)");
+      wordPair = await fetchRandomWord(null, allowAdult);
     }
+
+    // Attempt 3: If still nothing (e.g. user wanted non-adult but DB only has adult), force ANY word
+    // This effectively breaks the "No 18+" rule but prevents game crash.
+    if (!wordPair) {
+      console.log("⚠️ CRITICAL: No words found at all. Fetching ANY random word.");
+      const { data } = await supabase.from("word_pairs").select("*").limit(1).single();
+      wordPair = data;
+    }
+
+    if (!wordPair) {
+      throw new Error("No word pairs available in database!");
+    }
+
+    // 4. Update Room with Phase & Timers
+    const now = new Date().toISOString();
     
-    // Use Fallback if DB failed or empty
-    if (!selectedPair) {
-        const difficulty = settings?.wordLevel || "medium";
-        const filteredFallback = FALLBACK_WORDS.filter(w => w.difficulty === difficulty);
-        const pool = filteredFallback.length > 0 ? filteredFallback : FALLBACK_WORDS;
-        selectedPair = pool[Math.floor(Math.random() * pool.length)];
-      wordSource = "fallback";
-    }
+    // Clear old state just in case
+    await supabase.from("game_votes").delete().eq("room_id", roomId);
+    await supabase.from("game_hints").delete().eq("room_id", roomId);
+    await supabase.from("chat_messages").delete().eq("room_id", roomId);
 
-    const civilianWord = selectedPair.civilian_word;
-    const traitorWord = selectedPair.traitor_word;
-
-    // 4. Assign Roles
-    const numTraitors = Math.max(1, Math.min(participants.length - 1, settings?.traitors || 1));
-    const shuffled = [...participants].sort(() => Math.random() - 0.5);
-    const traitorIds = shuffled.slice(0, numTraitors).map(p => p.user_id);
-
-    // 5. Create Secrets
-    const roundNumber = (room.current_round || 0) + 1;
-    const secrets = participants.map(p => ({
-      room_id: roomId,
-      user_id: p.user_id,
-      round_number: roundNumber,
-      secret_word: traitorIds.includes(p.user_id) ? traitorWord : civilianWord,
-    }));
-
-    const { error: insertErr } = await supabase
-      .from("round_secrets")
-      .insert(secrets);
-
-    if (insertErr) {
-      console.error("Error inserting secrets:", insertErr);
-      throw new Error("Failed to assign words");
-    }
-
-    // 6. Update Participant Roles (CRITICAL: DO THIS BEFORE UPDATING ROOM STATUS)
-    for (const p of participants) {
-      await supabase
-        .from("room_participants")
-        .update({
-          role: traitorIds.includes(p.user_id) ? "traitor" : "civilian",
-        })
-        .eq("room_id", roomId)
-        .eq("user_id", p.user_id);
-    }
-
-    // 7. Update Room Status & Settings (Triggers Client Navigation)
     await supabase
       .from("game_rooms")
       .update({
-        current_round: roundNumber,
         status: "playing",
-        settings: { 
-            ...room.settings, 
-            ...settings,
-            hint_baseline: 0 
-        }
+        current_round: 1,
+        settings: {
+          ...settings,
+          wordPairId: wordPair.id,
+          civilianWord: wordPair.civilian_word,
+          traitorWord: wordPair.traitor_word,
+          civilianDesc: wordPair.civilian_word_description,
+          traitorDesc: wordPair.traitor_word_description,
+          wordRevealStartedAt: now,
+          voteSession: 1,
+          hintRound: 1,
+          gameResult: null,
+          voteSessionStartedAt: null, // Clear future phase timers
+          hintStartedAt: null,
+        },
       })
       .eq("id", roomId);
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        roundNumber,
-        civilianWord,
-        traitorWord,
-        wordSource,
-        wordPairId: selectedPair?.id || null,
-        wordCategory: selectedPair?.category || null,
-        wordDebug,
-        numPlayers: participants.length,
-        numTraitors: traitorIds.length,
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ success: true, wordPair }), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (error) {
     console.error("Error in start-round:", error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
