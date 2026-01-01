@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
+import { useMusic } from "@/contexts/MusicContext"
 
 const mockPlayers = [
   { id: "1", name: "You", avatar: "🦊", isTraitor: false },
@@ -196,6 +197,12 @@ const GameScreen = () => {
   const [hint, setHint] = useState("")
   const [messages, setMessages] = useState(mockMessages)
   const secretWord = "Snow"
+  const { setPhase } = useMusic()
+
+  // 🎵 Set Music Phase
+  useEffect(() => {
+    setPhase('game')
+  }, [setPhase])
 
   useEffect(() => {
     const timer = setInterval(() => {
