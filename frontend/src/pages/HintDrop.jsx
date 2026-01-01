@@ -238,6 +238,32 @@ const HintDrop = () => {
         () => fetchSubmittedHints(room.id)
       )
       .subscribe();
+      
+    // 🛡️ CRITICAL FIX: Subscribe to ALL events on room_participants (INSERT, UPDATE, DELETE)
+    // If a host/player is deleted (ghost cleanup), we must update the 'alivePlayers' list immediately.
+    // If we don't, 'submittedPlayers.length >= alivePlayers.length' stays false forever because the ghost counts as alive.
+    const participantsChannel = supabase
+      .channel(`participants_hint_${roomCode}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*", 
+          schema: "public",
+          table: "room_participants",
+        },
+        async () => {
+           // Refresh participant list
+           const { data: participants } = await supabase
+            .from("room_participants")
+            .select("*, profiles!room_participants_user_id_fkey(username)")
+            .eq("room_id", room.id);
+            
+            setPlayers(participants || []);
+            const alive = (participants || []).filter(p => p.is_alive !== false);
+            setAlivePlayers(alive);
+        }
+      )
+      .subscribe();
 
     const roomChannel = supabase
       .channel(`room_phase_hint_${roomCode}`)
@@ -272,6 +298,7 @@ const HintDrop = () => {
     return () => {
       supabase.removeChannel(hintsChannel);
       supabase.removeChannel(roomChannel);
+      supabase.removeChannel(participantsChannel);
     };
   }, [room, roomCode, navigate, playerName, isHost, profileId]);
 
