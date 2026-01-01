@@ -17,35 +17,40 @@ import About from "./pages/About";
 import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
 import FeedbackWidget from "@/components/FeedbackWidget";
+import MusicPlayerWidget from "@/components/MusicPlayerWidget";
+import { MusicProvider } from "@/contexts/MusicContext";
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/lobby/:roomCode" element={<Lobby />} />
+      <MusicProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<Index />} />
+            <Route path="/lobby/:roomCode" element={<Lobby />} />
 
-          <Route path="/word/:roomCode" element={<Whisper />} />
-          <Route path="/hint/:roomCode" element={<HintDrop />} />
-          <Route path="/discussion/:roomCode" element={<Discussion />} />
+            <Route path="/word/:roomCode" element={<Whisper />} />
+            <Route path="/hint/:roomCode" element={<HintDrop />} />
+            <Route path="/discussion/:roomCode" element={<Discussion />} />
 
-          <Route path="/game" element={<Game />} />
-          {/* <Route path="/results" element={<Results />} /> */}
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/profile" element={<Profile />} />
-          <Route path="/help" element={<Settings />} />
-          <Route path="/about" element={<About />} />
-          <Route path="/terms" element={<Terms />} />
-          <Route path="/privacy" element={<Privacy />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-        <FeedbackWidget />
-      </BrowserRouter>
+            <Route path="/game" element={<Game />} />
+            {/* <Route path="/results" element={<Results />} /> */}
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/profile" element={<Profile />} />
+            <Route path="/help" element={<Settings />} />
+            <Route path="/about" element={<About />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+          <FeedbackWidget />
+          <MusicPlayerWidget />
+        </BrowserRouter>
+      </MusicProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );
