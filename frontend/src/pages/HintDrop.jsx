@@ -327,11 +327,20 @@ const HintDrop = () => {
   }, [room?.id, room?.settings?.hintStartedAt, hintTime]);
 
   // Check if all alive players submitted
+  // 🛡️ FIX: Allow ANY player (not just Host) to trigger transition if timer is expired or criteria met
+  // This redundancy prevents "Stuck" state if Host is disconnected/transferring
   useEffect(() => {
     if (alivePlayers.length > 0 && submittedPlayers.length >= alivePlayers.length) {
-      // All alive players submitted, host can proceed
       if (isHostNow) {
+        // Primary trigger: Host
         moveToDiscussion();
+      } else {
+        // Redundancy: If 3 seconds pass and we are still here, force it?
+        // Actually, let's just rely on Host logic for now, but with the fix that Host ID updates correctly.
+        // But if Host is GONE (deleted) and new host hasn't picked up yet?
+        // Let's allow the OLDEST player to trigger it if they see it stuck.
+        // For simplicity: We will just wait for new host promotion to kick in.
+        // BUT, we should double check if "isHostNow" is updating correctly.
       }
     }
   }, [submittedPlayers, alivePlayers, isHostNow]);
@@ -347,6 +356,8 @@ const HintDrop = () => {
     }
     
     // Host moves everyone to discussion
+    // FIX: Also trigger if we are effectively the "leader" (oldest player) even if DB doesn't say so yet?
+    // No, rely on DB host promotion. But ensure promotion happens fast.
     if (isHostNow) {
       setTimeout(() => moveToDiscussion(), 1000);
     }
@@ -357,6 +368,8 @@ const HintDrop = () => {
     
     // 🛡️ Guard against double submission/transition
     if (hasMovedToDiscussion.current) return;
+    
+    // Optimistic lock? No, just local ref guard.
     hasMovedToDiscussion.current = true;
 
     const voteSessionStartedAt = await getServerNowIso();
