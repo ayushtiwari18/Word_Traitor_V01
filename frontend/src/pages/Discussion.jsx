@@ -631,6 +631,8 @@ const Discussion = () => {
             voteSession: 1,
             gameResult: null,
             voteSessionStartedAt: null,
+            wordRevealStartedAt: null, // ✅ FIXED: Clear reveal start time
+            hintStartedAt: null,       // ✅ FIXED: Clear hint start time
           },
         })
         .eq("id", room.id);
