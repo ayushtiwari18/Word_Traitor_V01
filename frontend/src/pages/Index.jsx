@@ -435,7 +435,7 @@ const Index = () => {
   }
 
   return (
-    <section className="relative min-h-screen flex flex-col items-center justify-center px-4 gradient-mesh">
+    <section className="relative min-h-screen flex flex-col items-center justify-center px-4 gradient-mesh pb-16">
       <ParticleBackground />
 
       {/* Top icons */}
@@ -573,7 +573,13 @@ const Index = () => {
       </div>
 
       {/* Footer */}
-      <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background to-transparent" />
+      <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-6 text-xs text-muted-foreground animate-fade-in-up" style={{ animationDelay: "1s" }}>
+        <Link to="/terms" className="hover:text-primary transition-colors">Terms of Service</Link>
+        <span className="text-muted-foreground/30">•</span>
+        <Link to="/privacy" className="hover:text-primary transition-colors">Privacy Policy</Link>
+        <span className="text-muted-foreground/30">•</span>
+        <Link to="/about" className="hover:text-primary transition-colors">About</Link>
+      </div>
     </section>
   );
 };
