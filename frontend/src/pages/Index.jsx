@@ -7,6 +7,7 @@ import {
   PlusCircle,
   KeyRound,
   Play,
+  Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -134,13 +135,15 @@ const Index = () => {
       localStorage.setItem(`profile_id_${upperCode}`, profile.id);
 
       // Navigate to lobby
-      navigate(`/lobby/${upperCode}`, {
-        state: {
-          playerName: playerNameToUse,
-          isHost: false,
-          profileId: profile.id,
-        },
-      });
+      navigate(`/lobby/${upperCode}`,
+        {
+          state: {
+            playerName: playerNameToUse,
+            isHost: false,
+            profileId: profile.id,
+          },
+        }
+      );
     } catch (error) {
       console.error("Auto-join error:", error);
       alert("An error occurred while joining the room.");
@@ -403,6 +406,15 @@ const Index = () => {
             className="text-muted-foreground hover:text-primary"
           >
             <HelpCircle className="w-5 h-5" />
+          </Button>
+        </Link>
+        <Link to="/about">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-primary"
+          >
+            <Info className="w-5 h-5" />
           </Button>
         </Link>
       </div>
