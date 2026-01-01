@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { supabase } from "@/lib/supabaseClient";
 import { useRoomPresence } from "@/lib/useRoomPresence";
+import { useMusic } from "@/contexts/MusicContext";
 
 const Lobby = () => {
   const { roomCode } = useParams();
@@ -50,6 +51,12 @@ const Lobby = () => {
     anonymousVoting: false,
   });
   const [currentIsHost, setCurrentIsHost] = useState(isHost || false);
+  const { setPhase } = useMusic();
+
+  // 🎵 Set Music Phase
+  useEffect(() => {
+    setPhase('lobby');
+  }, [setPhase]);
 
   const redirectByStatus = (roomData) => {
     if (!roomData?.status || !roomCode) return;
