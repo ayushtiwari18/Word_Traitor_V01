@@ -119,16 +119,51 @@ export const promoteNewHost = async (roomId, oldHostId, onlineUserIds = []) => {
 /**
  * Removes a player from the room (Ghost Cleanup).
  * Called by the Host when they detect a stale presence.
+ * If the ghost being removed is the HOST, triggers a host promotion.
  */
 export const removeGhostPlayer = async (roomId, userId) => {
   if (!roomId || !userId) return;
   try {
     console.log(`👻 Reaper: Removing ghost player ${userId}`);
+
+    // CRITICAL FIX: Check if the ghost being removed is the current host
+    const { data: roomData } = await supabase
+      .from("game_rooms")
+      .select("host_id")
+      .eq("id", roomId)
+      .single();
+
+    const wasHost = roomData?.host_id === userId;
+
+    // Delete the ghost participant
     await supabase
       .from("room_participants")
       .delete()
       .eq("room_id", roomId)
       .eq("user_id", userId);
+
+    // If we just removed the host, immediately trigger a host promotion
+    if (wasHost) {
+      console.log(`⚠️ Ghost was the HOST! Triggering host promotion.`);
+      
+      // Fetch remaining participants and get online list from presence
+      // We need presence state here. Since we can't directly access it in this utility,
+      // we'll fetch all remaining participants and treat them as "online" for promotion.
+      // The Presence hook will refine this later if needed.
+      
+      const { data: remainingParticipants } = await supabase
+        .from("room_participants")
+        .select("user_id")
+        .eq("room_id", roomId);
+
+      const onlineUserIds = (remainingParticipants || []).map(p => p.user_id);
+      
+      if (onlineUserIds.length > 0) {
+        await promoteNewHost(roomId, userId, onlineUserIds);
+      } else {
+        console.log("🔥 No remaining players. Room will be cleaned up.");
+      }
+    }
   } catch (err) {
     console.error("Error removing ghost:", err);
   }
