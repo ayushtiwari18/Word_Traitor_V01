@@ -82,23 +82,26 @@ serve(async (req) => {
     const fetchRandomWord = async (diff, adult) => {
       let query = supabase.from("word_pairs").select("*");
 
-      // Filter by difficulty if provided
-      if (diff) {
-        query = query.ilike("category", `${diff}%`);
-      }
+      if (adult) {
+        // 🔞 STRICT ADULT MODE
+        query = query.or("category.ilike.%18plus%,category.ilike.%adult%");
 
-      // STRICT Adult Filter
-      if (!adult) {
-        // NON-ADULT MODE → exclude adult content
+        // Optional: still respect difficulty INSIDE adult
+        if (diff) {
+          query = query.ilike("category", `%${diff}%`);
+        }
+      } else {
+        // 🟢 NON-ADULT MODE
         query = query
           .not("category", "ilike", "%18plus%")
           .not("category", "ilike", "%adult%");
-      } else {
-        // ADULT MODE → ONLY adult content
-        query = query.or("category.ilike.%18plus%,category.ilike.%adult%");
+
+        if (diff) {
+          query = query.ilike("category", `${diff}%`);
+        }
       }
 
-      // Get count first to pick random offset
+      // Count
       const { count, error: countErr } = await query.select("*", {
         count: "exact",
         head: true,
@@ -107,11 +110,13 @@ serve(async (req) => {
       if (countErr || !count) return null;
 
       const randomOffset = Math.floor(Math.random() * count);
+
       const { data, error } = await query
         .select("*")
         .range(randomOffset, randomOffset)
         .single();
 
+      if (error) return null;
       return data;
     };
 
