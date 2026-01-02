@@ -3,14 +3,13 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
 };
 
 // 🛡️ FALLBACK WORDS
 // Ensures game starts even if database 'word_pairs' table is empty or fails.
-const FALLBACK_WORDS = [
-
-];
+const FALLBACK_WORDS = [];
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -20,11 +19,11 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    
+
     if (!supabaseUrl || !supabaseServiceKey) {
-       throw new Error("Missing server configuration");
+      throw new Error("Missing server configuration");
     }
-    
+
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     const { roomId, settings, profileId } = await req.json();
@@ -32,7 +31,10 @@ serve(async (req) => {
     if (!roomId || !profileId) {
       return new Response(
         JSON.stringify({ error: "roomId and profileId are required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
       );
     }
 
@@ -44,16 +46,21 @@ serve(async (req) => {
       .single();
 
     if (roomErr || !room) {
-      return new Response(
-        JSON.stringify({ error: "Room not found" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({ error: "Room not found" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     if (room.host_id !== profileId) {
       return new Response(
-        JSON.stringify({ error: "Unauthorized - only host can start the game" }),
-        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        JSON.stringify({
+          error: "Unauthorized - only host can start the game",
+        }),
+        {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
       );
     }
 
@@ -64,110 +71,146 @@ serve(async (req) => {
       .eq("room_id", roomId);
 
     if (partErr || !participants || participants.length < 2) {
-       // Ideally we enforce 2+ players, but for testing we allow it
+      // Ideally we enforce 2+ players, but for testing we allow it
     }
-    
-    // 3. Select Word Pair
+
+    // 3. Select Word Pair with proper randomization and no repetition
     let selectedPair = null;
     let wordSource: "db" | "seeded_fallback" | "fallback" = "fallback";
     let wordDebug: Record<string, unknown> = {};
-    
-    // Try to fetch from DB with filters
+
     try {
-      // NOTE: Your schema uses `word_pairs.category` (not `difficulty`).
-      // If we query a non-existent column, PostgREST errors and we fall back.
-      const baseQuery = supabase
+      const level = settings?.wordLevel || "medium";
+      const adultWords = !!settings?.adultWords;
+      wordDebug = { level, adultWords };
+
+      // Step 1: Get all previously used word pairs for this room to exclude them
+      const { data: usedSecrets } = await supabase
+        .from("round_secrets")
+        .select("secret_word")
+        .eq("room_id", roomId);
+
+      const usedWords = new Set(
+        usedSecrets?.flatMap((s) => [s.secret_word]) || []
+      );
+      wordDebug = { ...wordDebug, usedWordsCount: usedWords.size };
+
+      // Step 2: Build the query based on adult filter
+      let query = supabase
         .from("word_pairs")
         .select(
           "id, category, civilian_word, civilian_word_description, traitor_word, traitor_word_description"
         );
 
-      const level = settings?.wordLevel || "medium";
-      const adultWords = !!settings?.adultWords;
-
-      // Your DB uses categories like: easy_18plus / medium_18plus / hard_18plus.
-      // Non-adult sets are typically: easy / medium / hard.
-      const primaryCategory = adultWords ? `${level}_18plus` : level;
-      wordDebug = { level, adultWords, primaryCategory };
-
-      // 1) Try primary category first
-      {
-        const { data: filteredPairs, error: filteredErr } = await baseQuery
-          .eq("category", primaryCategory)
-          .limit(200);
-
-        if (filteredErr) {
-          console.error("Error querying word_pairs (filtered):", filteredErr);
-        } else if (filteredPairs && filteredPairs.length > 0) {
-          selectedPair =
-            filteredPairs[Math.floor(Math.random() * filteredPairs.length)];
-          wordSource = "db";
-          wordDebug = { ...wordDebug, filteredCount: filteredPairs.length };
-        }
+      if (adultWords) {
+        // MUST select from categories containing "_18plus" OR "adult"
+        query = query.or(`category.ilike.%_18plus,category.ilike.%adult%`);
+        wordDebug = { ...wordDebug, filterType: "adult_only" };
+      } else {
+        // MUST NOT select from categories containing "_18plus" OR "adult"
+        query = query
+          .not("category", "ilike", "%_18plus")
+          .not("category", "ilike", "%adult%");
+        wordDebug = { ...wordDebug, filterType: "non_adult_only" };
       }
 
-      // 2) If primary category empty, broaden within adult/non-adult pools
-      if (!selectedPair) {
+      // Step 3: Fetch all matching pairs (using limit 1000 for large datasets)
+      const { data: allPairs, error: queryErr } = await query.limit(1000);
+
+      if (queryErr) {
+        console.error("Error querying word_pairs:", queryErr);
+        throw queryErr;
+      }
+
+      if (allPairs && allPairs.length > 0) {
+        wordDebug = { ...wordDebug, totalAvailable: allPairs.length };
+
+        // Step 4: Filter out previously used pairs
+        const availablePairs = allPairs.filter(
+          (pair) =>
+            !usedWords.has(pair.civilian_word) &&
+            !usedWords.has(pair.traitor_word)
+        );
+
+        wordDebug = { ...wordDebug, availableUnused: availablePairs.length };
+
+        // Step 5: Prefer matching difficulty level, but allow any if needed
+        let candidatePairs = availablePairs;
+
         if (adultWords) {
-          const { data: adultPairs, error: adultErr } = await baseQuery
-            .ilike("category", "%_18plus")
-            .limit(200);
-
-          if (adultErr) {
-            console.error("Error querying word_pairs (adult pool):", adultErr);
-          } else if (adultPairs && adultPairs.length > 0) {
-            selectedPair = adultPairs[Math.floor(Math.random() * adultPairs.length)];
-            wordSource = "db";
-            wordDebug = { ...wordDebug, adultPoolCount: adultPairs.length };
+          // First try: exact match with level (e.g., "medium_18plus", "medium_adult")
+          const levelMatchPairs = availablePairs.filter((pair) =>
+            pair.category.toLowerCase().includes(level.toLowerCase())
+          );
+          if (levelMatchPairs.length > 0) {
+            candidatePairs = levelMatchPairs;
+            wordDebug = {
+              ...wordDebug,
+              levelMatch: true,
+              candidateCount: levelMatchPairs.length,
+            };
+          } else {
+            wordDebug = {
+              ...wordDebug,
+              levelMatch: false,
+              candidateCount: availablePairs.length,
+            };
           }
         } else {
-          // Prefer same difficulty without _18plus.
-          const { data: levelPairs, error: levelErr } = await baseQuery
-            .ilike("category", `${level}%`)
-            .not("category", "ilike", "%_18plus")
-            .limit(200);
-
-          if (levelErr) {
-            console.error("Error querying word_pairs (level pool):", levelErr);
-          } else if (levelPairs && levelPairs.length > 0) {
-            selectedPair = levelPairs[Math.floor(Math.random() * levelPairs.length)];
-            wordSource = "db";
-            wordDebug = { ...wordDebug, levelPoolCount: levelPairs.length };
-          }
-
-          // If still empty, allow any non-adult word.
-          if (!selectedPair) {
-            const { data: nonAdultPairs, error: nonAdultErr } = await baseQuery
-              .not("category", "ilike", "%_18plus")
-              .limit(200);
-
-            if (nonAdultErr) {
-              console.error("Error querying word_pairs (non-adult pool):", nonAdultErr);
-            } else if (nonAdultPairs && nonAdultPairs.length > 0) {
-              selectedPair =
-                nonAdultPairs[Math.floor(Math.random() * nonAdultPairs.length)];
-              wordSource = "db";
-              wordDebug = { ...wordDebug, nonAdultPoolCount: nonAdultPairs.length };
-            }
+          // Non-adult: try to match level
+          const levelMatchPairs = availablePairs.filter(
+            (pair) =>
+              pair.category.toLowerCase() === level.toLowerCase() ||
+              pair.category.toLowerCase().startsWith(level.toLowerCase())
+          );
+          if (levelMatchPairs.length > 0) {
+            candidatePairs = levelMatchPairs;
+            wordDebug = {
+              ...wordDebug,
+              levelMatch: true,
+              candidateCount: levelMatchPairs.length,
+            };
+          } else {
+            wordDebug = {
+              ...wordDebug,
+              levelMatch: false,
+              candidateCount: availablePairs.length,
+            };
           }
         }
-      }
 
-      // 3) Last attempt: any word pair from DB
-      if (!selectedPair) {
-        const { data: anyPairs, error: anyErr } = await baseQuery.limit(200);
+        // Step 6: If no unused pairs available, reset and use all pairs
+        if (candidatePairs.length === 0) {
+          console.warn("⚠️ All word pairs have been used, resetting pool");
+          candidatePairs = allPairs.filter((pair) =>
+            adultWords
+              ? pair.category.toLowerCase().includes(level.toLowerCase())
+              : pair.category.toLowerCase() === level.toLowerCase() ||
+                pair.category.toLowerCase().startsWith(level.toLowerCase())
+          );
 
-        if (anyErr) {
-          console.error("Error querying word_pairs:", anyErr);
-        } else if (anyPairs && anyPairs.length > 0) {
-          selectedPair = anyPairs[Math.floor(Math.random() * anyPairs.length)];
-          wordSource = "db";
-          wordDebug = { ...wordDebug, anyCount: anyPairs.length };
-        } else {
-          console.warn("⚠️ No word_pairs found in DB.");
+          // If still no match, use any from the filtered set
+          if (candidatePairs.length === 0) {
+            candidatePairs = allPairs;
+          }
 
-          // If the table exists but is empty, auto-seed with fallback words once.
-          // This keeps your source of truth as `word_pairs` without requiring a manual seed step.
+          wordDebug = {
+            ...wordDebug,
+            poolReset: true,
+            candidateCount: candidatePairs.length,
+          };
+        }
+
+        // Step 7: Select random pair using crypto-secure randomness
+        const randomIndex = Math.floor(Math.random() * candidatePairs.length);
+        selectedPair = candidatePairs[randomIndex];
+        wordSource = "db";
+        wordDebug = { ...wordDebug, selectedCategory: selectedPair.category };
+      } else {
+        console.warn("⚠️ No word_pairs found in DB matching criteria.");
+
+        // Auto-seed with fallback if DB is empty
+        if (FALLBACK_WORDS.length > 0) {
           const seedRows = FALLBACK_WORDS.map((w) => ({
             category: w.difficulty,
             civilian_word: w.civilian_word,
@@ -176,13 +219,20 @@ serve(async (req) => {
             traitor_word_description: null,
           }));
 
-          const { error: seedErr } = await supabase.from("word_pairs").insert(seedRows);
+          const { error: seedErr } = await supabase
+            .from("word_pairs")
+            .insert(seedRows);
           if (seedErr) {
-            console.warn("⚠️ Could not seed word_pairs; will use fallback:", seedErr);
+            console.warn(
+              "⚠️ Could not seed word_pairs; will use fallback:",
+              seedErr
+            );
           } else {
-            const { data: seededPairs } = await baseQuery.limit(200);
+            // Retry query after seeding
+            const { data: seededPairs } = await query.limit(200);
             if (seededPairs && seededPairs.length > 0) {
-              selectedPair = seededPairs[Math.floor(Math.random() * seededPairs.length)];
+              selectedPair =
+                seededPairs[Math.floor(Math.random() * seededPairs.length)];
               wordSource = "seeded_fallback";
               wordDebug = { ...wordDebug, seededCount: seededPairs.length };
             }
@@ -190,29 +240,57 @@ serve(async (req) => {
         }
       }
     } catch (e) {
-      console.error("Error querying word_pairs:", e);
+      console.error("Error in word selection logic:", e);
     }
-    
-    // Use Fallback if DB failed or empty
+
+    // Fallback to hardcoded words if DB completely fails
     if (!selectedPair) {
-        const difficulty = settings?.wordLevel || "medium";
-        const filteredFallback = FALLBACK_WORDS.filter(w => w.difficulty === difficulty);
-        const pool = filteredFallback.length > 0 ? filteredFallback : FALLBACK_WORDS;
+      if (FALLBACK_WORDS.length > 0) {
+        const adultWords = !!settings?.adultWords;
+        const level = settings?.wordLevel || "medium";
+
+        // Filter fallback words based on adult setting
+        const filteredFallback = FALLBACK_WORDS.filter((w) => {
+          if (adultWords) {
+            // Only use words marked as adult
+            return (
+              w.difficulty.includes("18plus") || w.difficulty.includes("adult")
+            );
+          } else {
+            // Only use non-adult words
+            return (
+              !w.difficulty.includes("18plus") &&
+              !w.difficulty.includes("adult")
+            );
+          }
+        });
+
+        const pool =
+          filteredFallback.length > 0 ? filteredFallback : FALLBACK_WORDS;
         selectedPair = pool[Math.floor(Math.random() * pool.length)];
-      wordSource = "fallback";
+        wordSource = "fallback";
+        wordDebug = { ...wordDebug, fallbackPool: pool.length };
+      } else {
+        throw new Error(
+          "No word pairs available - database empty and no fallback words configured"
+        );
+      }
     }
 
     const civilianWord = selectedPair.civilian_word;
     const traitorWord = selectedPair.traitor_word;
 
     // 4. Assign Roles
-    const numTraitors = Math.max(1, Math.min(participants.length - 1, settings?.traitors || 1));
+    const numTraitors = Math.max(
+      1,
+      Math.min(participants.length - 1, settings?.traitors || 1)
+    );
     const shuffled = [...participants].sort(() => Math.random() - 0.5);
-    const traitorIds = shuffled.slice(0, numTraitors).map(p => p.user_id);
+    const traitorIds = shuffled.slice(0, numTraitors).map((p) => p.user_id);
 
     // 5. Create Secrets
     const roundNumber = (room.current_round || 0) + 1;
-    const secrets = participants.map(p => ({
+    const secrets = participants.map((p) => ({
       room_id: roomId,
       user_id: p.user_id,
       round_number: roundNumber,
@@ -245,11 +323,11 @@ serve(async (req) => {
       .update({
         current_round: roundNumber,
         status: "playing",
-        settings: { 
-            ...room.settings, 
-            ...settings,
-            hint_baseline: 0 
-        }
+        settings: {
+          ...room.settings,
+          ...settings,
+          hint_baseline: 0,
+        },
       })
       .eq("id", roomId);
 
@@ -266,13 +344,16 @@ serve(async (req) => {
         numPlayers: participants.length,
         numTraitors: traitorIds.length,
       }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      }
     );
   } catch (error) {
     console.error("Error in start-round:", error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
