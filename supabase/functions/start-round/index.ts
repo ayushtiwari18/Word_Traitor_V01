@@ -104,12 +104,13 @@ serve(async (req) => {
 
       if (adultWords) {
         // MUST select from categories containing "_18plus" OR "adult"
-        query = query.or(`category.ilike.%_18plus,category.ilike.%adult%`);
+        // Correct PostgREST syntax: use comma between conditions
+        query = query.or("category.ilike.%_18plus%,category.ilike.%adult%");
         wordDebug = { ...wordDebug, filterType: "adult_only" };
       } else {
         // MUST NOT select from categories containing "_18plus" OR "adult"
         query = query
-          .not("category", "ilike", "%_18plus")
+          .not("category", "ilike", "%_18plus%")
           .not("category", "ilike", "%adult%");
         wordDebug = { ...wordDebug, filterType: "non_adult_only" };
       }
