@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { supabase } from "@/lib/supabaseClient";
 import { useRoomPresence } from "@/lib/useRoomPresence";
+import { useMusic } from "@/contexts/MusicContext";
 
 const Lobby = () => {
   const { roomCode } = useParams();
@@ -50,6 +51,12 @@ const Lobby = () => {
     anonymousVoting: false,
   });
   const [currentIsHost, setCurrentIsHost] = useState(isHost || false);
+  const { setPhase } = useMusic();
+
+  // 🎵 Set Music Phase
+  useEffect(() => {
+    setPhase('lobby');
+  }, [setPhase]);
 
   const redirectByStatus = (roomData) => {
     if (!roomData?.status || !roomCode) return;
@@ -84,15 +91,20 @@ const Lobby = () => {
 
   // 🔧 Update settings in Supabase when host changes them
   const updateGameSettings = async (newSettings) => {
+    // 1. Optimistic update (host sees change instantly)
     setSettings(newSettings);
 
     if (currentIsHost && room) {
+      // 2. Write to DB
       const { error } = await supabase
         .from("game_rooms")
         .update({ settings: newSettings })
         .eq("id", room.id);
 
-      if (error) console.error("❌ Failed to update settings:", error);
+      if (error) {
+        console.error("❌ Failed to update settings:", error);
+        // Optional: rollback state if needed, but rarely critical for game settings
+      }
     }
   };
 
@@ -118,7 +130,12 @@ const Lobby = () => {
 
       currentRoomId = roomData.id;
       setRoom(roomData);
-      if (roomData.settings) setSettings(roomData.settings);
+      
+      // ✅ Initial sync: Apply DB settings
+      if (roomData.settings) {
+        setSettings(roomData.settings);
+      }
+      
       if (profileId && roomData.host_id === profileId) {
         setCurrentIsHost(true);
       } else {
@@ -152,7 +169,7 @@ const Lobby = () => {
         },
         (payload) => {
           console.log("🔄 Participant change detected:", payload);
-          console.log("Event type:", payload.eventType);
+          // Only re-fetch participants to be lighter
           fetchRoomData();
         }
       )
@@ -165,8 +182,22 @@ const Lobby = () => {
         },
         (payload) => {
           console.log("🎮 Game room updated:", payload);
-          fetchRoomData();
+          
           if (payload.new?.room_code === roomCode?.toUpperCase()) {
+            // ✅ DIRECT SYNC: Apply settings from payload immediately
+            if (payload.new.settings) {
+              setSettings(payload.new.settings);
+            }
+            
+            // Also update room state (host_id, status etc)
+            setRoom(prev => ({ ...(prev || {}), ...payload.new }));
+            
+            if (profileId && payload.new.host_id === profileId) {
+                setCurrentIsHost(true);
+            } else {
+                setCurrentIsHost(false);
+            }
+
             redirectByStatus(payload.new);
           }
         }
@@ -213,7 +244,7 @@ const Lobby = () => {
         {
           body: {
             roomId: room.id,
-            settings,
+            settings, // ✅ Pass current synced settings
             profileId,
           },
         }

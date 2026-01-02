@@ -42,6 +42,7 @@ const Discussion = () => {
   const lastVoteSessionRef = useRef(null);
   const endingInProgressRef = useRef(false);
   const serverOffsetRef = useRef(0);
+  const hasHandledTimeUp = useRef(false);
 
   useEffect(() => {
     voteSessionRef.current = voteSession;
@@ -241,6 +242,7 @@ const Discussion = () => {
           setVotingComplete(false);
           setShowResults(false);
           setVotedPlayer(null);
+          hasHandledTimeUp.current = false; // Reset handler on new session
           setTimeLeft(computeTimeLeft(roomData?.settings?.voteSessionStartedAt));
         }
         lastVoteSessionRef.current = nextVoteSession;
@@ -305,8 +307,15 @@ const Discussion = () => {
     const totalActivePlayers = activePlayers.length;
     const totalVotes = votes.length;
 
-    // Check if voting is complete (everyone has voted)
-    if (totalVotes >= totalActivePlayers && totalActivePlayers > 0 && !votingComplete) {
+    // Check if voting is complete (everyone has voted) OR time is up
+    if (((totalVotes >= totalActivePlayers && totalActivePlayers > 0) || (timeLeft <= 0 && isHostNow)) && !votingComplete) {
+      
+      // If time is up and not everyone voted, we can either force complete or just tally what we have.
+      // Here we assume "tally whatever we have".
+      // If NO votes were cast, maybe random? Or skip?
+      // Let's adopt a "skip if 0 votes, else tally" approach, or force a random elimination if standard rules.
+      // For now, let's just proceed with standard tally logic. If votes=0, it handles it.
+      
       const voteCounts = {};
       votes.forEach(v => {
         voteCounts[v.voted_user_id] = (voteCounts[v.voted_user_id] || 0) + 1;
@@ -317,39 +326,57 @@ const Discussion = () => {
       Object.values(voteCounts).forEach(count => {
         if (count > maxVotes) maxVotes = count;
       });
-
-      // Find all candidates with maxVotes (handling ties)
-      const topCandidates = Object.keys(voteCounts).filter(id => voteCounts[id] === maxVotes);
-
+      
       let eliminatedUserId = null;
 
-      if (topCandidates.length === 1) {
-        // Clear winner
-        eliminatedUserId = topCandidates[0];
+      if (maxVotes === 0) {
+        // No one voted. In many games this means no one dies, or random.
+        // Let's assume for safety we skip elimination if nobody voted.
+        // OR we can force a random kill. Given "Word Traitor" style, likely random or skip.
+        // Let's implemented SKIP for safety to avoid crashing if no candidates.
+        console.log("⏰ Time up with 0 votes. Skipping elimination.");
+        // If we skip, we just set VotingComplete -> Show Results (where we say "No one died")
+        // But UI expects `votedPlayer`. Let's create a "None" state or just pick random if that's the rule.
+        // Let's pick a random active player to keep game moving if forced.
+        if (activePlayers.length > 0 && isHostNow) {
+             const randomIdx = Math.floor(Math.random() * activePlayers.length);
+             eliminatedUserId = activePlayers[randomIdx].user_id;
+             console.log("🎲 Time up! Randomly eliminating:", eliminatedUserId);
+        }
       } else {
-        // TIE: Randomly pick one from the top candidates
-        const randomIndex = Math.floor(Math.random() * topCandidates.length);
-        eliminatedUserId = topCandidates[randomIndex];
-        console.log("🎲 Tie detected! Randomly eliminating:", eliminatedUserId);
+          // Find all candidates with maxVotes (handling ties)
+          const topCandidates = Object.keys(voteCounts).filter(id => voteCounts[id] === maxVotes);
+
+          if (topCandidates.length === 1) {
+            // Clear winner
+            eliminatedUserId = topCandidates[0];
+          } else {
+            // TIE: Randomly pick one from the top candidates
+            const randomIndex = Math.floor(Math.random() * topCandidates.length);
+            eliminatedUserId = topCandidates[randomIndex];
+            console.log("🎲 Tie detected! Randomly eliminating:", eliminatedUserId);
+          }
       }
 
-      const votedPlayerData = players.find(p => p.user_id === eliminatedUserId);
-      setVotedPlayer(votedPlayerData);
-      setVotingComplete(true);
-      setShowResults(true);
+      if (eliminatedUserId) {
+        const votedPlayerData = players.find(p => p.user_id === eliminatedUserId);
+        setVotedPlayer(votedPlayerData);
+        setVotingComplete(true);
+        setShowResults(true);
 
-      // If traitor is voted out, end game immediately (host persists for everyone)
-      if (votedPlayerData?.user_id && votedPlayerData.user_id === traitorId) {
-        endGame({
-          winner: "citizens",
-          reason: "traitor_voted_out",
-          traitorId,
-          votedOutId: votedPlayerData.user_id,
-          voteSession: voteSessionRef.current,
-        });
+        // If traitor is voted out, end game immediately (host persists for everyone)
+        if (votedPlayerData?.user_id && votedPlayerData.user_id === traitorId && isHostNow) {
+          endGame({
+            winner: "citizens",
+            reason: "traitor_voted_out",
+            traitorId,
+            votedOutId: votedPlayerData.user_id,
+            voteSession: voteSessionRef.current,
+          });
+        }
       }
     }
-  }, [votes, players, room, votingComplete, traitorId]);
+  }, [votes, players, room, votingComplete, traitorId, timeLeft, isHostNow]);
 
   // ✅ GAME OVER LOGIC (2 Players Left)
   useEffect(() => {
@@ -360,13 +387,42 @@ const Discussion = () => {
     const alivePlayers = players.filter(p => p.is_alive !== false);
     const traitorAlive = alivePlayers.some(p => p.user_id === traitorId);
 
-    // If only 2 players remain alive and traitor is among them, traitor wins.
-    if (alivePlayers.length <= 2 && traitorAlive) {
-      endGame({
-        winner: "traitor",
-        reason: "two_players_left",
-        traitorId,
-      });
+    // If exactly 2 players remain alive:
+    if (alivePlayers.length === 2) {
+      if (traitorAlive) {
+        // Traitor + 1 Citizen = Traitor Wins
+        endGame({
+          winner: "traitor",
+          reason: "two_players_left",
+          traitorId,
+        });
+      } else {
+        // 2 Citizens = Citizens Win
+        endGame({
+          winner: "citizens",
+          reason: "all_citizens_remain",
+          traitorId,
+        });
+      }
+    }
+
+    // If only 1 player left (edge case: everyone else left/eliminated)
+    if (alivePlayers.length === 1) {
+      if (traitorAlive) {
+        // Only traitor left = Traitor Wins
+        endGame({
+          winner: "traitor",
+          reason: "only_traitor_remains",
+          traitorId,
+        });
+      } else {
+        // Only 1 citizen left = Citizens Win (traitor was eliminated earlier)
+        endGame({
+          winner: "citizens",
+          reason: "only_citizen_remains",
+          traitorId,
+        });
+      }
     }
   }, [players, traitorId, room, isHostNow]);
 
@@ -449,7 +505,7 @@ const Discussion = () => {
       .on(
         "postgres_changes",
         {
-          event: "UPDATE",
+          event: "*", // Changed from "UPDATE" to "*" to catch DELETEs (ghost cleanup)
           schema: "public",
           table: "room_participants",
         },
@@ -480,15 +536,26 @@ const Discussion = () => {
     };
   }, [room, roomCode, navigate, playerName, profileId]);
 
+  // FIX: Accurate Timer Sync
   useEffect(() => {
-    if (timeLeft <= 0 || votingComplete) return;
+    if (!room?.settings?.voteSessionStartedAt || votingComplete) return;
 
-    const timer = setTimeout(() => {
-      setTimeLeft(prev => prev - 1);
-    }, 1000);
+    const tick = () => {
+      const remaining = computeTimeLeft(room.settings.voteSessionStartedAt);
+      setTimeLeft(remaining);
+      
+      // Safety trigger: if logic failed to catch 0 via other effect
+      if (remaining <= 0 && isHostNow && !votingComplete && !hasHandledTimeUp.current) {
+        hasHandledTimeUp.current = true;
+        // The effect below will catch 'timeLeft <= 0' and trigger completion logic
+      }
+    };
 
-    return () => clearTimeout(timer);
-  }, [timeLeft, votingComplete]);
+    tick(); // immediate update
+    const timer = setInterval(tick, 1000);
+
+    return () => clearInterval(timer);
+  }, [room?.settings?.voteSessionStartedAt, votingComplete, isHostNow]);
 
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !profileId || !room) return;
@@ -564,6 +631,8 @@ const Discussion = () => {
             voteSession: 1,
             gameResult: null,
             voteSessionStartedAt: null,
+            wordRevealStartedAt: null, // ✅ FIXED: Clear reveal start time
+            hintStartedAt: null,       // ✅ FIXED: Clear hint start time
           },
         })
         .eq("id", room.id);
@@ -597,12 +666,38 @@ const Discussion = () => {
       const alivePlayers = (updatedParticipants || []).filter(p => p.is_alive !== false);
       const traitorAlive = alivePlayers.some(p => p.user_id === traitorId || p.role === "traitor");
       
-      if (alivePlayers.length <= 2 && traitorAlive) {
-        await endGame({
-          winner: "traitor",
-          reason: "two_players_left",
-          traitorId,
-        });
+      // NEW LOGIC: Check 2-player endgame conditions
+      if (alivePlayers.length === 2) {
+        if (traitorAlive) {
+          await endGame({
+            winner: "traitor",
+            reason: "two_players_left",
+            traitorId,
+          });
+        } else {
+          await endGame({
+            winner: "citizens",
+            reason: "all_citizens_remain",
+            traitorId,
+          });
+        }
+        return;
+      }
+
+      if (alivePlayers.length === 1) {
+        if (traitorAlive) {
+          await endGame({
+            winner: "traitor",
+            reason: "only_traitor_remains",
+            traitorId,
+          });
+        } else {
+          await endGame({
+            winner: "citizens",
+            reason: "only_citizen_remains",
+            traitorId,
+          });
+        }
         return;
       }
 
@@ -670,9 +765,11 @@ const Discussion = () => {
             </h1>
 
             <p className="text-muted-foreground mb-6">
-              {citizensWon
-                ? "The traitor has been eliminated."
-                : "Only two players remain. The traitor escapes."}
+              {gameResult.reason === "traitor_voted_out" && "The traitor has been eliminated."}
+              {gameResult.reason === "two_players_left" && "Only two players remain. The traitor escapes."}
+              {gameResult.reason === "all_citizens_remain" && "Only citizens remain. The traitor was eliminated!"}
+              {gameResult.reason === "only_traitor_remains" && "The traitor outlasted everyone!"}
+              {gameResult.reason === "only_citizen_remains" && "The last citizen standing wins!"}
             </p>
 
             <div className="bg-background/50 rounded-xl p-4 mb-6">

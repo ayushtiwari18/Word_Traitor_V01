@@ -7,11 +7,15 @@ import {
   PlusCircle,
   KeyRound,
   Play,
+  Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/lib/supabaseClient"; // ensure supabase client is configured
+import { supabase } from "@/lib/supabaseClient"; 
+import { driver } from "driver.js";
+import "driver.js/dist/driver.css";
+import { useMusic } from "@/contexts/MusicContext";
 
 // Generate a random 6-letter room code
 const generateRoomCode = () => {
@@ -50,6 +54,12 @@ const Index = () => {
   const [autoJoining, setAutoJoining] = useState(false);
   const [showNameModal, setShowNameModal] = useState(false);
   const [autoJoinRoomCode, setAutoJoinRoomCode] = useState("");
+  const { setPhase } = useMusic();
+
+  // Set Music Phase
+  useEffect(() => {
+    setPhase('lobby');
+  }, [setPhase]);
 
   // Auto-join functionality when URL has room parameter
   const hasAutoJoined = useRef(false);
@@ -63,6 +73,57 @@ const Index = () => {
       setShowNameModal(true);
     }
   }, [searchParams]);
+
+  // Onboarding Tour
+  useEffect(() => {
+    const hasOnboarded = localStorage.getItem("has_onboarded_v1");
+    if (!hasOnboarded) {
+      // Delay to allow animations to complete
+      const timer = setTimeout(() => {
+        const driverObj = driver({
+          showProgress: true,
+          animate: true,
+          overlayColor: 'rgba(0,0,0,0.8)',
+          steps: [
+            { 
+              element: '#create-room-btn', 
+              popover: { 
+                title: 'Start a Game', 
+                description: 'Create a new room and become the host. Share the code with friends!',
+                side: "bottom", 
+                align: 'start' 
+              } 
+            },
+            { 
+              element: '#join-room-btn', 
+              popover: { 
+                title: 'Join a Game', 
+                description: 'Enter a room code if your friend already started a lobby.',
+                side: "bottom", 
+                align: 'start' 
+              } 
+            },
+            { 
+              element: '#feedback-trigger', 
+              popover: { 
+                title: 'We Listen!', 
+                description: 'Found a bug or have an idea? Click this floating button anytime.',
+                side: "left", 
+                align: 'end' 
+              } 
+            },
+          ],
+          onDestroyStarted: () => {
+             localStorage.setItem("has_onboarded_v1", "true");
+             driverObj.destroy();
+          }
+       });
+       driverObj.drive();
+      }, 1500); // 1.5s delay matches CSS animation duration
+
+      return () => clearTimeout(timer);
+    }
+  }, []);
 
   const autoJoinRoom = async (code, customName) => {
     // Prevent duplicate calls
@@ -134,13 +195,15 @@ const Index = () => {
       localStorage.setItem(`profile_id_${upperCode}`, profile.id);
 
       // Navigate to lobby
-      navigate(`/lobby/${upperCode}`, {
-        state: {
-          playerName: playerNameToUse,
-          isHost: false,
-          profileId: profile.id,
-        },
-      });
+      navigate(`/lobby/${upperCode}`,
+        {
+          state: {
+            playerName: playerNameToUse,
+            isHost: false,
+            profileId: profile.id,
+          },
+        }
+      );
     } catch (error) {
       console.error("Auto-join error:", error);
       alert("An error occurred while joining the room.");
@@ -340,13 +403,7 @@ const Index = () => {
                       : "Join with random name"}
                   </Button>
 
-                  <Button
-                    onClick={handleSkipName}
-                    variant="outline"
-                    className="w-full border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800/50 hover:border-cyan-500/50 font-semibold py-6 text-lg transition-all"
-                  >
-                    Skip & Use Random Name
-                  </Button>
+                 
                 </div>
 
                 {/* Info Badge */}
@@ -379,7 +436,7 @@ const Index = () => {
   }
 
   return (
-    <section className="relative min-h-screen flex flex-col items-center justify-center px-4 gradient-mesh">
+    <section className="relative min-h-screen flex flex-col items-center justify-center px-4 gradient-mesh pb-16">
       <ParticleBackground />
 
       {/* Top icons */}
@@ -403,6 +460,15 @@ const Index = () => {
             className="text-muted-foreground hover:text-primary"
           >
             <HelpCircle className="w-5 h-5" />
+          </Button>
+        </Link>
+        <Link to="/about">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-primary"
+          >
+            <Info className="w-5 h-5" />
           </Button>
         </Link>
       </div>
@@ -441,6 +507,7 @@ const Index = () => {
         >
           {/* Create Room */}
           <button
+            id="create-room-btn"
             onClick={handleCreateRoom}
             className={cn(
               "group relative p-8 rounded-2xl border-2 bg-card/40 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all duration-300 backdrop-blur-md overflow-hidden"
@@ -460,6 +527,7 @@ const Index = () => {
 
           {/* Join Room */}
           <button
+            id="join-room-btn"
             onClick={() => setJoining(true)}
             className={cn(
               "group relative p-8 rounded-2xl border-2 bg-card/40 border-secondary/30 hover:border-secondary hover:bg-secondary/10 transition-all duration-300 backdrop-blur-md overflow-hidden"
@@ -506,7 +574,13 @@ const Index = () => {
       </div>
 
       {/* Footer */}
-      <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-background to-transparent" />
+      <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-6 text-xs text-muted-foreground animate-fade-in-up" style={{ animationDelay: "1s" }}>
+        <Link to="/terms" className="hover:text-primary transition-colors">Terms of Service</Link>
+        <span className="text-muted-foreground/30">•</span>
+        <Link to="/privacy" className="hover:text-primary transition-colors">Privacy Policy</Link>
+        <span className="text-muted-foreground/30">•</span>
+        <Link to="/about" className="hover:text-primary transition-colors">About</Link>
+      </div>
     </section>
   );
 };
