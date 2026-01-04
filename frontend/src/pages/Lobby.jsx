@@ -258,6 +258,9 @@ const Lobby = () => {
 
       console.log("🎮 Game started:", data);
 
+      // Increment Global Stats for games played
+      await supabase.rpc('increment_games_played');
+
       // 🔀 redirect to word reveal page (next phase)
       navigate(`/word/${roomCode}`, {
         state: { playerName, currentIsHost, profileId },
