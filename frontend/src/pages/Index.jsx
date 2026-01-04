@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/lib/supabaseClient"; 
+import { supabase } from "@/lib/supabaseClient";
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import { useMusic } from "@/contexts/MusicContext";
@@ -26,6 +26,7 @@ const generateRoomCode = () => {
     () => chars[Math.floor(Math.random() * chars.length)]
   ).join("");
 };
+
 // Generate random player name
 const generateRandomPlayerName = () => {
   const randomNumber = Math.floor(Math.random() * 9000) + 1000; // 1000-9999
@@ -59,7 +60,7 @@ const Index = () => {
 
   // Set Music Phase
   useEffect(() => {
-    setPhase('lobby');
+    setPhase("lobby");
   }, [setPhase]);
 
   // Auto-join functionality when URL has room parameter
@@ -84,42 +85,45 @@ const Index = () => {
         const driverObj = driver({
           showProgress: true,
           animate: true,
-          overlayColor: 'rgba(0,0,0,0.8)',
+          overlayColor: "rgba(0,0,0,0.8)",
           steps: [
-            { 
-              element: '#create-room-btn', 
-              popover: { 
-                title: 'Start a Game', 
-                description: 'Create a new room and become the host. Share the code with friends!',
-                side: "bottom", 
-                align: 'start' 
-              } 
+            {
+              element: "#create-room-btn",
+              popover: {
+                title: "Start a Game",
+                description:
+                  "Create a new room and become the host. Share the code with friends!",
+                side: "bottom",
+                align: "start",
+              },
             },
-            { 
-              element: '#join-room-btn', 
-              popover: { 
-                title: 'Join a Game', 
-                description: 'Enter a room code if your friend already started a lobby.',
-                side: "bottom", 
-                align: 'start' 
-              } 
+            {
+              element: "#join-room-btn",
+              popover: {
+                title: "Join a Game",
+                description:
+                  "Enter a room code if your friend already started a lobby.",
+                side: "bottom",
+                align: "start",
+              },
             },
-            { 
-              element: '#feedback-trigger', 
-              popover: { 
-                title: 'We Listen!', 
-                description: 'Found a bug or have an idea? Click this floating button anytime.',
-                side: "left", 
-                align: 'end' 
-              } 
+            {
+              element: "#feedback-trigger",
+              popover: {
+                title: "We Listen!",
+                description:
+                  "Found a bug or have an idea? Click this floating button anytime.",
+                side: "left",
+                align: "end",
+              },
             },
           ],
           onDestroyStarted: () => {
-             localStorage.setItem("has_onboarded_v1", "true");
-             driverObj.destroy();
-          }
-       });
-       driverObj.drive();
+            localStorage.setItem("has_onboarded_v1", "true");
+            driverObj.destroy();
+          },
+        });
+        driverObj.drive();
       }, 1500); // 1.5s delay matches CSS animation duration
 
       return () => clearTimeout(timer);
@@ -177,12 +181,10 @@ const Index = () => {
       }
 
       // Add to room
-      const { error: joinErr } = await supabase
-        .from("room_participants")
-        .insert({
-          room_id: roomData.id,
-          user_id: profile.id,
-        });
+      const { error: joinErr } = await supabase.from("room_participants").insert({
+        room_id: roomData.id,
+        user_id: profile.id,
+      });
 
       if (joinErr) {
         console.error("Error joining room:", joinErr);
@@ -193,21 +195,19 @@ const Index = () => {
       }
 
       // Increment Global Stats
-      await supabase.rpc('increment_players_joined');
+      await supabase.rpc("increment_players_joined");
 
       // Store profile ID in localStorage
       localStorage.setItem(`profile_id_${upperCode}`, profile.id);
 
       // Navigate to lobby
-      navigate(`/lobby/${upperCode}`,
-        {
-          state: {
-            playerName: playerNameToUse,
-            isHost: false,
-            profileId: profile.id,
-          },
-        }
-      );
+      navigate(`/lobby/${upperCode}`, {
+        state: {
+          playerName: playerNameToUse,
+          isHost: false,
+          profileId: profile.id,
+        },
+      });
     } catch (error) {
       console.error("Auto-join error:", error);
       alert("An error occurred while joining the room.");
@@ -215,6 +215,7 @@ const Index = () => {
       setShowNameModal(false);
     }
   };
+
   const handleNameModalSubmit = () => {
     if (!playerName.trim()) {
       // Use random name if empty
@@ -278,7 +279,7 @@ const Index = () => {
       if (participantError) throw participantError;
 
       // Increment Global Stats
-      await supabase.rpc('increment_players_joined');
+      await supabase.rpc("increment_players_joined");
 
       // Store profileId for host verification
       localStorage.setItem(`profile_id_${roomCode}`, profile.id);
@@ -329,7 +330,7 @@ const Index = () => {
         throw participantError;
 
       // Increment Global Stats
-      await supabase.rpc('increment_players_joined');
+      await supabase.rpc("increment_players_joined");
 
       // Store profileId for later use
       localStorage.setItem(`profile_id_${code}`, profile.id);
@@ -348,6 +349,7 @@ const Index = () => {
       alert("Failed to join room. Check console for details.");
     }
   };
+
   // Name modal for shareable link
   if (showNameModal) {
     return (
@@ -497,7 +499,7 @@ const Index = () => {
         </h1>
 
         <p
-          className="text-lg sm:text-xl text-muted-foreground mt-4 mb-4 animate-fade-in-up font-light tracking-wide"
+          className="text-lg sm:text-xl text-muted-foreground mt-4 mb-10 animate-fade-in-up font-light tracking-wide"
           style={{ animationDelay: "0.2s" }}
         >
           One word apart. One traitor among you.
@@ -589,20 +591,32 @@ const Index = () => {
         )}
       </div>
 
-      {/* Global Stats Counter - Bottom */}
-      <div className="w-full max-w-4xl mx-auto px-4 mt-auto z-10 animate-fade-in-up" style={{ animationDelay: "0.9s" }}>
+      {/* Global Stats (subtle, not affecting layout) */}
+      <div
+        className="absolute bottom-16 left-0 right-0 flex justify-center z-10 animate-fade-in-up"
+        style={{ animationDelay: "0.9s" }}
+      >
+        <div className="opacity-75 hover:opacity-100 transition-opacity">
           <GlobalStats />
+        </div>
       </div>
 
-      {/* Footer */}
-      <div className="flex flex-col items-center gap-4 mt-8 pb-4 text-xs text-muted-foreground animate-fade-in-up" style={{ animationDelay: "1s" }}>
-        <div className="flex gap-6">
-          <Link to="/terms" className="hover:text-primary transition-colors">Terms of Service</Link>
-          <span className="text-muted-foreground/30">•</span>
-          <Link to="/privacy" className="hover:text-primary transition-colors">Privacy Policy</Link>
-          <span className="text-muted-foreground/30">•</span>
-          <Link to="/about" className="hover:text-primary transition-colors">About</Link>
-        </div>
+      {/* Footer (back to original absolute positioning) */}
+      <div
+        className="absolute bottom-6 left-0 right-0 flex justify-center gap-6 text-xs text-muted-foreground animate-fade-in-up"
+        style={{ animationDelay: "1s" }}
+      >
+        <Link to="/terms" className="hover:text-primary transition-colors">
+          Terms of Service
+        </Link>
+        <span className="text-muted-foreground/30">•</span>
+        <Link to="/privacy" className="hover:text-primary transition-colors">
+          Privacy Policy
+        </Link>
+        <span className="text-muted-foreground/30">•</span>
+        <Link to="/about" className="hover:text-primary transition-colors">
+          About
+        </Link>
       </div>
     </section>
   );
