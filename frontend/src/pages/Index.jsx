@@ -16,6 +16,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import { useMusic } from "@/contexts/MusicContext";
+import GlobalStats from "@/components/GlobalStats";
 
 // Generate a random 6-letter room code
 const generateRoomCode = () => {
@@ -191,6 +192,9 @@ const Index = () => {
         return;
       }
 
+      // Increment Global Stats
+      await supabase.rpc('increment_players_joined');
+
       // Store profile ID in localStorage
       localStorage.setItem(`profile_id_${upperCode}`, profile.id);
 
@@ -273,6 +277,9 @@ const Index = () => {
 
       if (participantError) throw participantError;
 
+      // Increment Global Stats
+      await supabase.rpc('increment_players_joined');
+
       // Store profileId for host verification
       localStorage.setItem(`profile_id_${roomCode}`, profile.id);
 
@@ -320,6 +327,9 @@ const Index = () => {
 
       if (participantError && participantError.code !== "23505")
         throw participantError;
+
+      // Increment Global Stats
+      await supabase.rpc('increment_players_joined');
 
       // Store profileId for later use
       localStorage.setItem(`profile_id_${code}`, profile.id);
@@ -403,7 +413,13 @@ const Index = () => {
                       : "Join with random name"}
                   </Button>
 
-                 
+                  <Button
+                    onClick={handleSkipName}
+                    variant="outline"
+                    className="w-full border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800/50 hover:border-cyan-500/50 font-semibold py-6 text-lg transition-all"
+                  >
+                    Skip & Use Random Name
+                  </Button>
                 </div>
 
                 {/* Info Badge */}
@@ -481,11 +497,16 @@ const Index = () => {
         </h1>
 
         <p
-          className="text-lg sm:text-xl text-muted-foreground mt-4 mb-10 animate-fade-in-up font-light tracking-wide"
+          className="text-lg sm:text-xl text-muted-foreground mt-4 mb-4 animate-fade-in-up font-light tracking-wide"
           style={{ animationDelay: "0.2s" }}
         >
           One word apart. One traitor among you.
         </p>
+
+        {/* Global Stats Counter */}
+        <div className="mb-10 w-full animate-fade-in-up" style={{ animationDelay: "0.3s" }}>
+          <GlobalStats />
+        </div>
 
         {/* Player name input */}
         <div
