@@ -503,11 +503,6 @@ const Index = () => {
           One word apart. One traitor among you.
         </p>
 
-        {/* Global Stats Counter */}
-        <div className="mb-10 w-full animate-fade-in-up" style={{ animationDelay: "0.3s" }}>
-          <GlobalStats />
-        </div>
-
         {/* Player name input */}
         <div
           className="flex flex-col sm:flex-row gap-3 w-full justify-center items-center animate-fade-in-up"
@@ -594,13 +589,20 @@ const Index = () => {
         )}
       </div>
 
+      {/* Global Stats Counter - Bottom */}
+      <div className="w-full max-w-4xl mx-auto px-4 mt-auto z-10 animate-fade-in-up" style={{ animationDelay: "0.9s" }}>
+          <GlobalStats />
+      </div>
+
       {/* Footer */}
-      <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-6 text-xs text-muted-foreground animate-fade-in-up" style={{ animationDelay: "1s" }}>
-        <Link to="/terms" className="hover:text-primary transition-colors">Terms of Service</Link>
-        <span className="text-muted-foreground/30">•</span>
-        <Link to="/privacy" className="hover:text-primary transition-colors">Privacy Policy</Link>
-        <span className="text-muted-foreground/30">•</span>
-        <Link to="/about" className="hover:text-primary transition-colors">About</Link>
+      <div className="flex flex-col items-center gap-4 mt-8 pb-4 text-xs text-muted-foreground animate-fade-in-up" style={{ animationDelay: "1s" }}>
+        <div className="flex gap-6">
+          <Link to="/terms" className="hover:text-primary transition-colors">Terms of Service</Link>
+          <span className="text-muted-foreground/30">•</span>
+          <Link to="/privacy" className="hover:text-primary transition-colors">Privacy Policy</Link>
+          <span className="text-muted-foreground/30">•</span>
+          <Link to="/about" className="hover:text-primary transition-colors">About</Link>
+        </div>
       </div>
     </section>
   );
