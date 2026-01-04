@@ -6,37 +6,43 @@ const GlobalStats = () => {
   const [stats, setStats] = useState({ games: 0, players: 0, online: 1 });
 
   useEffect(() => {
-    // 1) Fetch initial stats
+    // 1) Fetch & SUM stats from ALL rows
     const fetchStats = async () => {
-      const { data } = await supabase.from("global_stats").select("*").single();
+      const { data, error } = await supabase
+        .from("global_stats")
+        .select("total_games_played, total_players_joined");
+
       if (data) {
+        // Calculate totals by summing up all rows
+        const totalGames = data.reduce((acc, row) => acc + (row.total_games_played || 0), 0);
+        const totalPlayers = data.reduce((acc, row) => acc + (row.total_players_joined || 0), 0);
+
         setStats((prev) => ({
           ...prev,
-          games: data.total_games_played,
-          players: data.total_players_joined,
+          games: totalGames,
+          players: totalPlayers,
         }));
+      } else if (error) {
+        console.error("Error fetching global stats:", error);
       }
     };
 
     fetchStats();
 
-    // 2) Subscribe to live updates
+    // 2) Subscribe to live updates (refresh totals on any change)
     const channel = supabase
       .channel("global_stats_changes")
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "global_stats" },
-        (payload) => {
-          setStats((prev) => ({
-            ...prev,
-            games: payload.new.total_games_played,
-            players: payload.new.total_players_joined,
-          }));
+        { event: "*", schema: "public", table: "global_stats" },
+        () => {
+          // Re-fetch totals whenever any row changes
+          fetchStats();
         }
       )
       .subscribe();
 
-    // 3) Track "Online Now" using Presence (approx)
+    // 3) Track "Online Now" using Presence
     const presenceChannel = supabase
       .channel("online_users_global")
       .on("presence", { event: "sync" }, () => {
@@ -56,7 +62,7 @@ const GlobalStats = () => {
     };
   }, []);
 
-  // Compact, low-focus UI (doesn't compete with the hero section)
+  // Compact, low-focus UI
   return (
     <div className="flex items-center justify-center">
       <div className="flex flex-wrap items-center justify-center gap-3 px-4 py-2 rounded-full bg-card/20 backdrop-blur-md border border-border/30 shadow-sm">
@@ -65,7 +71,7 @@ const GlobalStats = () => {
           <span className="font-semibold text-foreground/90">
             {stats.games.toLocaleString()}
           </span>
-          <span className="hidden sm:inline">games</span>
+          <span className="hidden sm:inline">games played</span>
         </div>
 
         <span className="hidden sm:inline text-muted-foreground/40">•</span>
@@ -75,7 +81,7 @@ const GlobalStats = () => {
           <span className="font-semibold text-foreground/90">
             {stats.players.toLocaleString()}
           </span>
-          <span className="hidden sm:inline">players</span>
+          <span className="hidden sm:inline">total players</span>
         </div>
 
         <span className="hidden md:inline text-muted-foreground/40">•</span>
