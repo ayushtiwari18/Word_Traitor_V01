@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/lib/supabaseClient"; 
+import { supabase } from "@/lib/supabaseClient";
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import { useMusic } from "@/contexts/MusicContext";
@@ -58,7 +58,7 @@ const Index = () => {
 
   // Set Music Phase
   useEffect(() => {
-    setPhase('lobby');
+    setPhase("lobby");
   }, [setPhase]);
 
   // Auto-join functionality when URL has room parameter
@@ -83,42 +83,45 @@ const Index = () => {
         const driverObj = driver({
           showProgress: true,
           animate: true,
-          overlayColor: 'rgba(0,0,0,0.8)',
+          overlayColor: "rgba(0,0,0,0.8)",
           steps: [
-            { 
-              element: '#create-room-btn', 
-              popover: { 
-                title: 'Start a Game', 
-                description: 'Create a new room and become the host. Share the code with friends!',
-                side: "bottom", 
-                align: 'start' 
-              } 
+            {
+              element: "#create-room-btn",
+              popover: {
+                title: "Start a Game",
+                description:
+                  "Create a new room and become the host. Share the code with friends!",
+                side: "bottom",
+                align: "start",
+              },
             },
-            { 
-              element: '#join-room-btn', 
-              popover: { 
-                title: 'Join a Game', 
-                description: 'Enter a room code if your friend already started a lobby.',
-                side: "bottom", 
-                align: 'start' 
-              } 
+            {
+              element: "#join-room-btn",
+              popover: {
+                title: "Join a Game",
+                description:
+                  "Enter a room code if your friend already started a lobby.",
+                side: "bottom",
+                align: "start",
+              },
             },
-            { 
-              element: '#feedback-trigger', 
-              popover: { 
-                title: 'We Listen!', 
-                description: 'Found a bug or have an idea? Click this floating button anytime.',
-                side: "left", 
-                align: 'end' 
-              } 
+            {
+              element: "#feedback-trigger",
+              popover: {
+                title: "We Listen!",
+                description:
+                  "Found a bug or have an idea? Click this floating button anytime.",
+                side: "left",
+                align: "end",
+              },
             },
           ],
           onDestroyStarted: () => {
-             localStorage.setItem("has_onboarded_v1", "true");
-             driverObj.destroy();
-          }
-       });
-       driverObj.drive();
+            localStorage.setItem("has_onboarded_v1", "true");
+            driverObj.destroy();
+          },
+        });
+        driverObj.drive();
       }, 1500); // 1.5s delay matches CSS animation duration
 
       return () => clearTimeout(timer);
@@ -195,15 +198,13 @@ const Index = () => {
       localStorage.setItem(`profile_id_${upperCode}`, profile.id);
 
       // Navigate to lobby
-      navigate(`/lobby/${upperCode}`,
-        {
-          state: {
-            playerName: playerNameToUse,
-            isHost: false,
-            profileId: profile.id,
-          },
-        }
-      );
+      navigate(`/lobby/${upperCode}`, {
+        state: {
+          playerName: playerNameToUse,
+          isHost: false,
+          profileId: profile.id,
+        },
+      });
     } catch (error) {
       console.error("Auto-join error:", error);
       alert("An error occurred while joining the room.");
@@ -402,8 +403,6 @@ const Index = () => {
                       ? "Join with this name"
                       : "Join with random name"}
                   </Button>
-
-                 
                 </div>
 
                 {/* Info Badge */}
@@ -444,7 +443,7 @@ const Index = () => {
         className="absolute top-6 right-6 flex items-center gap-3 animate-fade-in-up"
         style={{ animationDelay: "0.8s" }}
       >
-        <Link to="/settings">
+        {/* <Link to="/settings">
           <Button
             variant="ghost"
             size="icon"
@@ -461,7 +460,7 @@ const Index = () => {
           >
             <HelpCircle className="w-5 h-5" />
           </Button>
-        </Link>
+        </Link> */}
         <Link to="/about">
           <Button
             variant="ghost"
@@ -574,12 +573,21 @@ const Index = () => {
       </div>
 
       {/* Footer */}
-      <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-6 text-xs text-muted-foreground animate-fade-in-up" style={{ animationDelay: "1s" }}>
-        <Link to="/terms" className="hover:text-primary transition-colors">Terms of Service</Link>
+      <div
+        className="absolute bottom-6 left-0 right-0 flex justify-center gap-6 text-xs text-muted-foreground animate-fade-in-up"
+        style={{ animationDelay: "1s" }}
+      >
+        <Link to="/terms" className="hover:text-primary transition-colors">
+          Terms of Service
+        </Link>
         <span className="text-muted-foreground/30">•</span>
-        <Link to="/privacy" className="hover:text-primary transition-colors">Privacy Policy</Link>
+        <Link to="/privacy" className="hover:text-primary transition-colors">
+          Privacy Policy
+        </Link>
         <span className="text-muted-foreground/30">•</span>
-        <Link to="/about" className="hover:text-primary transition-colors">About</Link>
+        <Link to="/about" className="hover:text-primary transition-colors">
+          About
+        </Link>
       </div>
     </section>
   );
