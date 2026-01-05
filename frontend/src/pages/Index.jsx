@@ -585,6 +585,16 @@ const Index = () => {
         )}
       </div>
 
+      {/* Global Stats (subtle, not affecting layout) */}
+      <div
+        className="absolute bottom-16 left-0 right-0 flex justify-center z-10 animate-fade-in-up"
+        style={{ animationDelay: "0.9s" }}
+      >
+        <div className="opacity-75 hover:opacity-100 transition-opacity">
+          <GlobalStats />
+        </div>
+      </div>
+
       {/* Footer */}
       <div
         className="absolute bottom-6 left-0 right-0 flex justify-center gap-6 text-xs text-muted-foreground animate-fade-in-up"
