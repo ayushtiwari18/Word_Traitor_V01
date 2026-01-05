@@ -16,6 +16,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import { useMusic } from "@/contexts/MusicContext";
+import GlobalStats from "@/components/GlobalStats";
 
 // Generate a random 6-letter room code
 const generateRoomCode = () => {
@@ -25,6 +26,7 @@ const generateRoomCode = () => {
     () => chars[Math.floor(Math.random() * chars.length)]
   ).join("");
 };
+
 // Generate random player name
 const generateRandomPlayerName = () => {
   const randomNumber = Math.floor(Math.random() * 9000) + 1000; // 1000-9999
@@ -194,6 +196,9 @@ const Index = () => {
         return;
       }
 
+      // Increment Global Stats
+      await supabase.rpc("increment_players_joined");
+
       // Store profile ID in localStorage
       localStorage.setItem(`profile_id_${upperCode}`, profile.id);
 
@@ -212,6 +217,7 @@ const Index = () => {
       setShowNameModal(false);
     }
   };
+
   const handleNameModalSubmit = () => {
     if (!playerName.trim()) {
       // Use random name if empty
@@ -274,6 +280,9 @@ const Index = () => {
 
       if (participantError) throw participantError;
 
+      // Increment Global Stats
+      await supabase.rpc("increment_players_joined");
+
       // Store profileId for host verification
       localStorage.setItem(`profile_id_${roomCode}`, profile.id);
 
@@ -322,6 +331,9 @@ const Index = () => {
       if (participantError && participantError.code !== "23505")
         throw participantError;
 
+      // Increment Global Stats
+      await supabase.rpc("increment_players_joined");
+
       // Store profileId for later use
       localStorage.setItem(`profile_id_${code}`, profile.id);
 
@@ -339,6 +351,7 @@ const Index = () => {
       alert("Failed to join room. Check console for details.");
     }
   };
+
   // Name modal for shareable link
   if (showNameModal) {
     return (
