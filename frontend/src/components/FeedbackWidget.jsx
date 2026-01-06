@@ -22,6 +22,7 @@ const FeedbackWidget = () => {
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const location = useLocation();
+  const isHome = location.pathname === "/";
 
   // Reset form when opening
   useEffect(() => {
@@ -88,7 +89,7 @@ const FeedbackWidget = () => {
       <DialogTrigger asChild>
         <Button
           id="feedback-trigger"
-          className="fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full shadow-lg shadow-cyan-500/20 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-600 hover:to-teal-600 border-0 p-0 animate-in fade-in zoom-in duration-300 hidden lg:inline-flex"
+          className={`fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full shadow-lg shadow-cyan-500/20 bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-600 hover:to-teal-600 border-0 p-0 animate-in fade-in zoom-in duration-300 ${isHome ? 'inline-flex' : 'hidden lg:inline-flex'}`}
           size="icon"
         >
           <MessageSquare className="h-6 w-6 text-white" />
