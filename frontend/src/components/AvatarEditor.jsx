@@ -31,24 +31,24 @@ const AvatarEditor = ({ isOpen, onClose, initialConfig, onSave, initialName }) =
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[425px] bg-card border-border">
+      <DialogContent className="sm:max-w-[425px] bg-card border-border w-[95vw] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-center font-heading text-xl">Customize Your Look</DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-col items-center gap-6 py-4">
           {/* Avatar Preview */}
-          <div className="relative group">
-            <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-primary shadow-xl">
+          <div className="relative group shrink-0">
+            <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden border-4 border-primary shadow-xl">
               <Avatar style={{ width: "100%", height: "100%" }} {...config} />
             </div>
             <Button
               variant="secondary"
               size="icon"
-              className="absolute bottom-0 right-0 rounded-full shadow-md"
+              className="absolute bottom-0 right-0 rounded-full shadow-md w-8 h-8 sm:w-10 sm:h-10"
               onClick={handleRandomize}
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="w-3 h-3 sm:w-4 sm:h-4" />
             </Button>
           </div>
 
@@ -64,11 +64,11 @@ const AvatarEditor = ({ isOpen, onClose, initialConfig, onSave, initialName }) =
           </div>
 
           {/* Controls */}
-          <div className="grid grid-cols-2 gap-4 w-full">
-            <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 w-full text-xs sm:text-sm">
+            <div className="space-y-1.5 sm:space-y-2">
               <Label>Hair Style</Label>
               <Select value={config.hairStyle} onValueChange={(v) => updateConfig("hairStyle", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-8 sm:h-10"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="normal">Normal</SelectItem>
                   <SelectItem value="thick">Thick</SelectItem>
@@ -79,10 +79,10 @@ const AvatarEditor = ({ isOpen, onClose, initialConfig, onSave, initialName }) =
               </Select>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-1.5 sm:space-y-2">
               <Label>Hat Style</Label>
                <Select value={config.hatStyle} onValueChange={(v) => updateConfig("hatStyle", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-8 sm:h-10"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">None</SelectItem>
                   <SelectItem value="beanie">Beanie</SelectItem>
@@ -91,10 +91,10 @@ const AvatarEditor = ({ isOpen, onClose, initialConfig, onSave, initialName }) =
               </Select>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-1.5 sm:space-y-2">
               <Label>Glasses</Label>
               <Select value={config.glassesStyle} onValueChange={(v) => updateConfig("glassesStyle", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-8 sm:h-10"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">None</SelectItem>
                   <SelectItem value="round">Round</SelectItem>
@@ -103,10 +103,10 @@ const AvatarEditor = ({ isOpen, onClose, initialConfig, onSave, initialName }) =
               </Select>
             </div>
 
-             <div className="space-y-2">
+             <div className="space-y-1.5 sm:space-y-2">
               <Label>Shirt Color</Label>
               <Select value={config.shirtColor} onValueChange={(v) => updateConfig("shirtColor", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger className="h-8 sm:h-10"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="#9287FF">Purple</SelectItem>
                   <SelectItem value="#6BD9E9">Cyan</SelectItem>
@@ -116,14 +116,13 @@ const AvatarEditor = ({ isOpen, onClose, initialConfig, onSave, initialName }) =
                 </SelectContent>
               </Select>
             </div>
-             
-             {/* Can add more detailed controls if needed */}
           </div>
         </div>
 
-        <DialogFooter>
-          <Button onClick={handleSave} className="w-full gap-2" variant="neonCyan">
-            <Save className="w-4 h-4" /> Save Changes
+        <DialogFooter className="sm:justify-between gap-2">
+           <Button variant="ghost" onClick={onClose} className="w-full sm:w-auto">Cancel</Button>
+          <Button onClick={handleSave} className="w-full sm:w-auto gap-2" variant="neonCyan">
+            <Save className="w-4 h-4" /> Save
           </Button>
         </DialogFooter>
       </DialogContent>
