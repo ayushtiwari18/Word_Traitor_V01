@@ -702,41 +702,47 @@ const Discussion = () => {
     }
   };
 
-  // Results + Finished screens: keep unchanged
+  // 🏁 GAME OVER SCREEN (Mobile + Desktop)
   if (gameResult?.winner) {
     const traitorName = traitorId ? getPlayerName(traitorId) : "Unknown";
     const citizensWon = gameResult.winner === "citizens";
 
     return (
-      <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center relative">
-        <div className="absolute top-4 left-4 z-10">
+      <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center relative lg:p-0">
+        
+        {/* Desktop Container */}
+        <div className="hidden lg:block absolute top-4 left-4 z-10">
           <Button variant="ghost" size="sm" className="gap-2" onClick={handleExitGame}>
-            <ArrowLeft className="w-4 h-4" />
-            Exit
+            <ArrowLeft className="w-4 h-4" /> Exit
           </Button>
         </div>
 
-        <div className="container max-w-lg mx-auto px-4">
-          <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-8 shadow-xl animate-fade-in-up text-center">
+        <div className={cn(
+            "bg-card/40 backdrop-blur-md border border-border/40 shadow-xl animate-fade-in-up text-center",
+            // Desktop: Centered card
+            "lg:rounded-2xl lg:p-8 lg:max-w-lg lg:w-full lg:relative",
+            // Mobile: Full-width bottom sheet style (or full screen center) - let's go with full screen center for Game Over
+            "w-full h-full flex flex-col justify-center items-center p-6 lg:h-auto"
+        )}>
             <div
-              className={`w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center ${
+              className={`w-24 h-24 mx-auto mb-6 rounded-full flex items-center justify-center ${
                 citizensWon
-                  ? "bg-green-500/20 border-2 border-green-500"
-                  : "bg-red-500/20 border-2 border-red-500"
+                  ? "bg-green-500/20 border-4 border-green-500"
+                  : "bg-red-500/20 border-4 border-red-500"
               }`}
             >
               {citizensWon ? (
-                <Trophy className="w-10 h-10 text-green-500" />
+                <Trophy className="w-12 h-12 text-green-500" />
               ) : (
-                <Skull className="w-10 h-10 text-red-500" />
+                <Skull className="w-12 h-12 text-red-500" />
               )}
             </div>
 
-            <h1 className="text-3xl font-heading font-bold mb-2">
+            <h1 className="text-4xl font-heading font-bold mb-3">
               {citizensWon ? "Citizens Win!" : "Traitor Wins!"}
             </h1>
 
-            <p className="text-muted-foreground mb-6">
+            <p className="text-muted-foreground mb-8 text-lg px-4">
               {gameResult.reason === "traitor_voted_out" && "The traitor has been eliminated."}
               {gameResult.reason === "two_players_left" && "Only two players remain. The traitor escapes."}
               {gameResult.reason === "all_citizens_remain" && "Only citizens remain. The traitor was eliminated!"}
@@ -744,35 +750,55 @@ const Discussion = () => {
               {gameResult.reason === "only_citizen_remains" && "The last citizen standing wins!"}
             </p>
 
-            <div className="bg-background/50 rounded-xl p-4 mb-6">
-              <h3 className="text-lg font-bold mb-2">Traitor Reveal</h3>
-              <p className="text-sm text-muted-foreground">The traitor was</p>
-              <p className="text-xl font-heading font-bold text-secondary">{traitorName}</p>
+            <div className="bg-background/50 rounded-xl p-6 mb-8 w-full max-w-sm mx-auto">
+              <h3 className="text-lg font-bold mb-2 uppercase tracking-widest text-muted-foreground">Traitor Identity</h3>
+              <p className="text-3xl font-heading font-bold text-secondary">{traitorName}</p>
             </div>
 
-            <Button variant="neonCyan" size="lg" onClick={handleBackToLobby} disabled={!isHostNow}>
+            <Button 
+                variant="neonCyan" 
+                size="lg" 
+                className="w-full max-w-sm h-14 text-lg"
+                onClick={handleBackToLobby} 
+                disabled={!isHostNow}
+            >
               {isHostNow ? "Back to Lobby" : "Waiting for host..."}
             </Button>
-          </div>
+            
+            <div className="lg:hidden mt-8">
+                <Button variant="ghost" size="sm" onClick={handleExitGame} className="text-muted-foreground">
+                    Exit Game
+                </Button>
+            </div>
         </div>
       </div>
     );
   }
 
+  // 🗳️ ROUND RESULTS SCREEN (Mobile + Desktop)
   if (showResults && votedPlayer) {
     return (
-      <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center relative">
-        <div className="absolute top-4 left-4 z-10">
+      <div className="min-h-screen bg-background gradient-mesh flex items-end lg:items-center justify-center relative">
+        
+        {/* Desktop Exit Button */}
+        <div className="hidden lg:block absolute top-4 left-4 z-10">
           <Button variant="ghost" size="sm" className="gap-2" onClick={handleExitGame}>
-            <ArrowLeft className="w-4 h-4" />
-            Exit
+            <ArrowLeft className="w-4 h-4" /> Exit
           </Button>
         </div>
 
-        <div className="container max-w-lg mx-auto px-4">
-          <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-8 shadow-xl animate-fade-in-up text-center">
+        <div className={cn(
+             "bg-card/95 backdrop-blur-xl border-t lg:border border-border/40 shadow-2xl animate-slide-up-mobile lg:animate-fade-in-up text-center",
+             // Desktop styles
+             "lg:rounded-2xl lg:p-8 lg:max-w-lg lg:w-full lg:relative lg:h-auto",
+             // Mobile styles (Bottom Sheet)
+             "w-full rounded-t-3xl p-6 pb-10 fixed bottom-0 left-0 right-0 max-h-[90vh] overflow-y-auto"
+        )}>
+            {/* Mobile Drag Handle (Visual) */}
+            <div className="lg:hidden w-12 h-1.5 bg-border/50 rounded-full mx-auto mb-6" />
+
             <div
-              className={`w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center ${
+              className={`w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center animate-bounce-in ${
                 isTraitor
                   ? "bg-green-500/20 border-2 border-green-500"
                   : "bg-red-500/20 border-2 border-red-500"
@@ -786,66 +812,66 @@ const Discussion = () => {
             </div>
 
             <h1 className="text-3xl font-heading font-bold mb-2">
-              {votedPlayer.profiles?.username} was voted out!
+              {votedPlayer.profiles?.username}
             </h1>
+            <p className="text-muted-foreground mb-6">was voted out!</p>
 
-            <div className={`text-xl font-bold mb-6 ${isTraitor ? "text-green-500" : "text-red-500"}`}>
+            <div className={`text-xl font-bold mb-8 ${isTraitor ? "text-green-500" : "text-red-500"}`}>
               {isTraitor ? (
-                <span className="flex items-center justify-center gap-2">
+                <span className="flex items-center justify-center gap-2 animate-pulse">
                   <CheckCircle className="w-6 h-6" />
-                  They were the TRAITOR!
+                  TRAITOR ELIMINATED!
                 </span>
               ) : (
                 <span className="flex items-center justify-center gap-2">
                   <XCircle className="w-6 h-6" />
-                  They were INNOCENT!
+                  INNOCENT ELIMINATED!
                 </span>
               )}
             </div>
 
-            <div className="bg-background/50 rounded-xl p-4 mb-6">
-              <h3 className="text-lg font-bold mb-3">Vote Results</h3>
+            <div className="bg-background/50 rounded-xl p-4 mb-6 text-left max-h-40 overflow-y-auto">
+              <h3 className="text-sm font-bold mb-3 text-muted-foreground uppercase tracking-wider">Vote Breakdown</h3>
               <div className="space-y-2">
                 {players.map((p) => (
-                  <div key={p.user_id} className="flex items-center justify-between">
-                    <span>
+                  <div key={p.user_id} className="flex items-center justify-between text-sm">
+                    <span className={p.is_alive === false ? "line-through opacity-50" : ""}>
                       {p.profiles?.username}
-                      {p.is_alive === false && " (Eliminated)"}
                     </span>
-                    <span className="font-mono">{getVoteCount(p.user_id)} votes</span>
+                    <span className="font-mono bg-muted px-2 py-0.5 rounded text-xs">{getVoteCount(p.user_id)}</span>
                   </div>
                 ))}
               </div>
             </div>
 
             {isTraitor ? (
-              <>
-                <div className="text-2xl font-heading font-bold text-green-500 mb-6">
-                  🎉 Citizens Win! 🎉
-                </div>
-                <Button variant="neonCyan" size="lg" onClick={handleBackToLobby}>
+              <Button variant="neonCyan" size="lg" className="w-full h-12" onClick={handleBackToLobby}>
                   Back to Lobby
-                </Button>
-              </>
+              </Button>
             ) : (
-              <>
-                <div className="text-xl font-heading font-bold text-yellow-500 mb-4">
-                  😢 An innocent was eliminated!
-                </div>
-                <p className="text-muted-foreground mb-6">
-                  The traitor is still among you. Drop new hints and continue the hunt!
-                </p>
-                <Button variant="neonCyan" size="lg" onClick={handleContinueGame} disabled={!isHostNow}>
-                  {isHostNow ? "Continue to Hint Phase" : "Waiting for host..."}
+              <div className="space-y-3">
+                <Button variant="neonCyan" size="lg" className="w-full h-12" onClick={handleContinueGame} disabled={!isHostNow}>
+                  {isHostNow ? "Next Round" : "Waiting for Host..."}
                 </Button>
-              </>
+                {!isTraitor && (
+                    <p className="text-xs text-muted-foreground">
+                        The traitor is still among us...
+                    </p>
+                )}
+              </div>
             )}
-          </div>
+            
+            <div className="lg:hidden mt-6">
+                 <Button variant="ghost" size="sm" onClick={handleExitGame} className="text-muted-foreground w-full">
+                    Exit Game
+                </Button>
+            </div>
         </div>
       </div>
     );
   }
 
+  // ... (Rest of Mobile / Desktop Layout logic remains unchanged from previous step)
   return (
     <div className="min-h-screen bg-background gradient-mesh relative">
       {/* MOBILE VIEW (new) */}
