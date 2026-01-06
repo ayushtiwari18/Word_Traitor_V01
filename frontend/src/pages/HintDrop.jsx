@@ -3,6 +3,7 @@ import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { Send, Clock, CheckCircle, Users, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/lib/supabaseClient";
 import { leaveGameRoom } from "@/lib/gameUtils";
 import { useRoomPresence } from "@/lib/useRoomPresence";
@@ -482,7 +483,9 @@ const HintDrop = () => {
               <div className="bg-background/50 rounded-xl p-4 mb-6 border border-border/40 text-center">
                 <p className="text-xs text-muted-foreground mb-1">Your word</p>
                 {loadingWord ? (
-                  <p className="text-sm text-muted-foreground">Loading…</p>
+                  <div className="flex justify-center">
+                    <Skeleton className="h-8 w-32 bg-primary/20" />
+                  </div>
                 ) : secretWord ? (
                   <p className="text-xl font-heading font-bold text-primary">{secretWord}</p>
                 ) : (
