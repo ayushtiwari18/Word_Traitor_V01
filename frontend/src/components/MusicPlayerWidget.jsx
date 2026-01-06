@@ -9,7 +9,7 @@ const MusicPlayerWidget = () => {
   const { isPlaying, toggleMusic, volume, setVolume, currentPhase } = useMusic();
 
   return (
-    <div className="fixed bottom-6 left-6 z-50 flex items-center gap-2 group">
+    <div className="fixed bottom-6 left-6 z-50 hidden lg:flex items-center gap-2 group">
       {/* Volume Slider (Revealed on Hover) */}
       <div className="w-0 overflow-hidden group-hover:w-32 transition-all duration-300 ease-out bg-slate-900/80 backdrop-blur-md rounded-full border border-cyan-500/20 shadow-lg shadow-cyan-500/10">
          <div className="p-3">
