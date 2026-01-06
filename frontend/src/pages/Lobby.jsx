@@ -25,6 +25,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { useRoomPresence } from "@/lib/useRoomPresence";
 import { useMusic } from "@/contexts/MusicContext";
 import AvatarEditor from "@/components/AvatarEditor"; // Import the Editor
+import { generateAvatarFromSeed } from "@/lib/avatarUtils"; // Import deterministic generator
 
 const Lobby = () => {
   const { roomCode } = useParams();
@@ -188,13 +189,9 @@ const Lobby = () => {
       if (me?.profiles?.avatar_config && Object.keys(me.profiles.avatar_config).length > 0) {
          setMyAvatarConfig(me.profiles.avatar_config);
       } else if (!myAvatarConfig) {
-         // Generate random ONLY if none exists in state AND none in DB
-         // We do this ONCE to avoid re-generating on every render
-         const newConfig = genConfig({ seed: me?.profiles?.username || "random" });
+         // Use the helper to generate a seed-based one initially
+         const newConfig = generateAvatarFromSeed(me?.profiles?.username || "default");
          setMyAvatarConfig(newConfig);
-         
-         // OPTIONAL: Save this initial random one to DB so it persists
-         // supabase.from("profiles").update({ avatar_config: newConfig }).eq("id", profileId);
       }
     };
 
@@ -544,11 +541,13 @@ const Lobby = () => {
             <div className="space-y-3 bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-6">
               {players.map((p, i) => {
                  const isMe = p.user_id === profileId;
-                 // Use saved config OR generate consistent one based on username seed
-                 // This fixes the "random on every click" issue
+                 
+                 // ✅ FIX: Use our new deterministic generator
+                 // This ensures the same config is generated for the same username every time
+                 // even across re-renders
                  const avatarConfig = p.profiles?.avatar_config && Object.keys(p.profiles.avatar_config).length > 0
                     ? p.profiles.avatar_config
-                    : genConfig({ seed: p.profiles?.username || p.user_id });
+                    : generateAvatarFromSeed(p.profiles?.username || p.user_id);
 
                  return (
                   <div
