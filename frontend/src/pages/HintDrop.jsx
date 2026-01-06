@@ -3,6 +3,7 @@ import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { Send, Clock, CheckCircle, Users, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/lib/supabaseClient";
 import { leaveGameRoom } from "@/lib/gameUtils";
 import { useRoomPresence } from "@/lib/useRoomPresence";
@@ -28,10 +29,14 @@ const HintDrop = () => {
   const [alivePlayers, setAlivePlayers] = useState([]);
   const [submittedPlayers, setSubmittedPlayers] = useState([]);
   const [isSpectator, setIsSpectator] = useState(false);
+  
   const timerRef = useRef(null);
   const hasHandledTimeUp = useRef(false);
   
-  // 🛡️ RACE CONDITION FIX: Guard against multiple transition calls
+  // 🛡️ SUBMISSION LOCK: Prevents double submission race conditions
+  const isSubmittingRef = useRef(false);
+  
+  // 🛡️ TRANSITION LOCK: Guard against multiple transition calls
   const hasMovedToDiscussion = useRef(false);
   
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
@@ -101,8 +106,10 @@ const HintDrop = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Reset guard on load
+        // Reset guards on load
         hasMovedToDiscussion.current = false;
+        hasHandledTimeUp.current = false;
+        isSubmittingRef.current = false;
 
         if (!profileId) {
           console.error("No profileId found");
@@ -126,11 +133,27 @@ const HintDrop = () => {
         setRoom(roomData);
         const time = roomData.settings?.hintTime || 30;
         setHintTime(time);
-        setTimeLeft(computeTimeLeft(roomData?.settings?.hintStartedAt, time));
+        
+        // Ensure hint phase start is persisted
+        const isHostFromRoom = !!(roomData.host_id && profileId && roomData.host_id === profileId);
+        let startedAt = roomData.settings?.hintStartedAt;
 
-        // Load the player's assigned secret word for the current round.
-        // This fixes cases where players land on HintDrop directly (refresh/redirect)
-        // and never saw the Word Reveal screen.
+        if (!startedAt && isHostFromRoom) {
+          startedAt = await getServerNowIso();
+          await supabase
+            .from("game_rooms")
+            .update({
+              settings: {
+                ...(roomData.settings || {}),
+                hintStartedAt: startedAt,
+              },
+            })
+            .eq("id", roomData.id);
+        }
+
+        setTimeLeft(computeTimeLeft(startedAt, time));
+
+        // Load secret word
         try {
           const roundNumber = roomData.current_round || 1;
           const { data: secretRow, error: secretErr } = await supabase
@@ -142,31 +165,12 @@ const HintDrop = () => {
             .single();
 
           if (secretErr) {
-            // Not fatal; can happen briefly if round is starting.
             setSecretWord(null);
           } else {
             setSecretWord(secretRow?.secret_word || null);
           }
         } finally {
           setLoadingWord(false);
-        }
-
-        // Ensure hint phase start is persisted once (host only).
-        // Use computed host status (host can change via presence).
-        const isHostFromRoom = !!(roomData.host_id && profileId && roomData.host_id === profileId);
-        if (!roomData?.settings?.hintStartedAt && isHostFromRoom) {
-          const startedAt = await getServerNowIso();
-          await supabase
-            .from("game_rooms")
-            .update({
-              settings: {
-                ...(roomData.settings || {}),
-                hintStartedAt: startedAt,
-              },
-            })
-            .eq("id", roomData.id);
-
-          setTimeLeft(computeTimeLeft(startedAt, time));
         }
 
         // Get participants
@@ -177,18 +181,17 @@ const HintDrop = () => {
 
         setPlayers(participants || []);
         
-        // Filter to only alive players (spectators don't participate in hints)
         const alive = (participants || []).filter(p => p.is_alive !== false);
         setAlivePlayers(alive);
         
-        // Check if current user is a spectator (eliminated)
         const currentParticipant = (participants || []).find(p => p.user_id === profileId);
         if (currentParticipant?.is_alive === false) {
           setIsSpectator(true);
-          setSubmitted(true); // Spectators don't need to submit
+          setSubmitted(true);
+          isSubmittingRef.current = true; // Mark submitted logic as done for spectator
         }
 
-        // Check if user already submitted hint
+        // Check existing hint with TIMESTAMP VALIDATION
         const { data: existingHint } = await supabase
           .from("game_hints")
           .select("*")
@@ -197,12 +200,25 @@ const HintDrop = () => {
           .single();
 
         if (existingHint) {
-          setSubmitted(true);
-          setHint(existingHint.hint);
+           // 🛡️ CRITICAL FIX: Timestamp Validation
+           // If hint was created BEFORE the current hint phase started (minus buffer), it's stale.
+           // Use the startedAt timestamp we just got/set
+           const hintTime = new Date(existingHint.created_at).getTime();
+           const roundStartTime = startedAt ? new Date(startedAt).getTime() : 0;
+           
+           // If hint is older than the start of this hint phase (with 2s buffer for clock skew), ignore it
+           if (roundStartTime > 0 && hintTime >= (roundStartTime - 2000)) {
+              setSubmitted(true);
+              setHint(existingHint.hint);
+              isSubmittingRef.current = true;
+           } else {
+              console.log("Ignoring stale hint from previous round:", existingHint.hint);
+              // Do NOT set submitted=true
+           }
         }
 
-        // Get all submitted hints to show progress
-        fetchSubmittedHints(roomData.id);
+        // Get all hints progress
+        fetchSubmittedHints(roomData.id, startedAt);
       } catch (error) {
         console.error("Error:", error);
         setLoadingWord(false);
@@ -212,17 +228,27 @@ const HintDrop = () => {
     fetchData();
   }, [roomCode, navigate, profileId]);
 
-  // Fetch who has submitted hints
-  const fetchSubmittedHints = async (roomId) => {
-    const { data: hints } = await supabase
+  // Fetch submitted hints with optional time filter
+  const fetchSubmittedHints = async (roomId, minTimeIso) => {
+    let query = supabase
       .from("game_hints")
-      .select("user_id")
+      .select("user_id, created_at")
       .eq("room_id", roomId);
+      
+    // Optional: filter by time if provided, to ensure we count only fresh hints
+    // However, for counting total submitted, we usually assume the DB is clean.
+    // But if DB cleanup failed, we should filter here too.
+    if (minTimeIso) {
+       // Only count hints created after phase start (minus buffer)
+       const minTime = new Date(new Date(minTimeIso).getTime() - 2000).toISOString();
+       query = query.gte("created_at", minTime);
+    }
 
+    const { data: hints } = await query;
     setSubmittedPlayers(hints?.map(h => h.user_id) || []);
   };
 
-  // Real-time subscription for hints and game phase
+  // Real-time subscriptions
   useEffect(() => {
     if (!room) return;
 
@@ -230,29 +256,17 @@ const HintDrop = () => {
       .channel(`hints_${roomCode}`)
       .on(
         "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "game_hints",
-        },
-        () => fetchSubmittedHints(room.id)
+        { event: "*", schema: "public", table: "game_hints" },
+        () => fetchSubmittedHints(room.id, room.settings?.hintStartedAt)
       )
       .subscribe();
       
-    // 🛡️ CRITICAL FIX: Subscribe to ALL events on room_participants (INSERT, UPDATE, DELETE)
-    // If a host/player is deleted (ghost cleanup), we must update the 'alivePlayers' list immediately.
-    // If we don't, 'submittedPlayers.length >= alivePlayers.length' stays false forever because the ghost counts as alive.
     const participantsChannel = supabase
       .channel(`participants_hint_${roomCode}`)
       .on(
         "postgres_changes",
-        {
-          event: "*", 
-          schema: "public",
-          table: "room_participants",
-        },
+        { event: "*", schema: "public", table: "room_participants" },
         async () => {
-           // Refresh participant list
            const { data: participants } = await supabase
             .from("room_participants")
             .select("*, profiles!room_participants_user_id_fkey(username)")
@@ -269,15 +283,9 @@ const HintDrop = () => {
       .channel(`room_phase_hint_${roomCode}`)
       .on(
         "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "game_rooms",
-        },
+        { event: "UPDATE", schema: "public", table: "game_rooms" },
         (payload) => {
           if (payload.new?.room_code !== roomCode?.toUpperCase()) return;
-          
-          // Update room state to reflect new host if changed
           setRoom(payload.new);
 
           if (payload.new?.status === "discussion") {
@@ -302,14 +310,11 @@ const HintDrop = () => {
     };
   }, [room, roomCode, navigate, playerName, isHost, profileId]);
 
-  // Timer countdown (synced from persisted hintStartedAt)
+  // Timer logic
   useEffect(() => {
     if (!room) return;
-
     const startedAt = room?.settings?.hintStartedAt;
     if (!startedAt) return;
-
-    hasHandledTimeUp.current = false;
 
     const tick = () => {
       const next = computeTimeLeft(startedAt, hintTime);
@@ -323,41 +328,50 @@ const HintDrop = () => {
     tick();
     timerRef.current = setInterval(tick, 1000);
     return () => clearInterval(timerRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room?.id, room?.settings?.hintStartedAt, hintTime]);
 
-  // Check if all alive players submitted
-  // 🛡️ FIX: Allow ANY player (not just Host) to trigger transition if timer is expired or criteria met
-  // This redundancy prevents "Stuck" state if Host is disconnected/transferring
+  // Transition Check
   useEffect(() => {
     if (alivePlayers.length > 0 && submittedPlayers.length >= alivePlayers.length) {
       if (isHostNow) {
-        // Primary trigger: Host
         moveToDiscussion();
-      } else {
-        // Redundancy: If 3 seconds pass and we are still here, force it?
-        // Actually, let's just rely on Host logic for now, but with the fix that Host ID updates correctly.
-        // But if Host is GONE (deleted) and new host hasn't picked up yet?
-        // Let's allow the OLDEST player to trigger it if they see it stuck.
-        // For simplicity: We will just wait for new host promotion to kick in.
-        // BUT, we should double check if "isHostNow" is updating correctly.
       }
     }
   }, [submittedPlayers, alivePlayers, isHostNow]);
 
   const handleTimeUp = async () => {
-    // Auto-submit empty hint if not submitted (and not a spectator)
-    if (!submitted && !isSpectator && profileId && room) {
-      await supabase.from("game_hints").insert({
-        room_id: room.id,
-        user_id: profileId,
-        hint: hint || "(no hint)",
-      });
+    // 🛡️ CHECK: Only proceed if NOT already submitting and NOT spectator
+    if (isSubmittingRef.current || isSpectator || !profileId || !room) {
+        // Just trigger transition check if host
+        if (isHostNow) setTimeout(() => moveToDiscussion(), 1000);
+        return;
     }
     
-    // Host moves everyone to discussion
-    // FIX: Also trigger if we are effectively the "leader" (oldest player) even if DB doesn't say so yet?
-    // No, rely on DB host promotion. But ensure promotion happens fast.
+    isSubmittingRef.current = true; // Lock immediately
+
+    // Double check DB to ensure we didn't miss a submission
+    const { data: existing } = await supabase
+       .from("game_hints")
+       .select("id")
+       .eq("room_id", room.id)
+       .eq("user_id", profileId)
+       .maybeSingle();
+
+    if (!existing) {
+        // Use typed hint OR default to "..." (silence) instead of ugly "(no hint)"
+        // If user typed something but forgot to send, send it!
+        const finalHint = hint.trim() || "..."; 
+        
+        await supabase.from("game_hints").insert({
+            room_id: room.id,
+            user_id: profileId,
+            hint: finalHint,
+        });
+        setSubmitted(true);
+        // If "..." was sent, clear input visually
+        if (finalHint === "...") setHint(""); 
+    }
+
     if (isHostNow) {
       setTimeout(() => moveToDiscussion(), 1000);
     }
@@ -365,11 +379,7 @@ const HintDrop = () => {
 
   const moveToDiscussion = async () => {
     if (!room) return;
-    
-    // 🛡️ Guard against double submission/transition
     if (hasMovedToDiscussion.current) return;
-    
-    // Optimistic lock? No, just local ref guard.
     hasMovedToDiscussion.current = true;
 
     const voteSessionStartedAt = await getServerNowIso();
@@ -386,7 +396,7 @@ const HintDrop = () => {
 
     if (error) {
        console.error("Error moving to discussion:", error);
-       hasMovedToDiscussion.current = false; // Reset on error
+       hasMovedToDiscussion.current = false;
     } else {
       navigate(`/discussion/${roomCode}`, { state: { playerName, isHost: true, profileId } });
     }
@@ -394,6 +404,10 @@ const HintDrop = () => {
 
   const handleSubmitHint = async () => {
     if (!hint.trim() || !profileId || !room) return;
+    
+    // 🛡️ LOCK
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
 
     const { error } = await supabase.from("game_hints").insert({
       room_id: room.id,
@@ -403,6 +417,7 @@ const HintDrop = () => {
 
     if (error) {
       console.error("Error submitting hint:", error);
+      isSubmittingRef.current = false; // Unlock on error
       return;
     }
 
@@ -468,7 +483,9 @@ const HintDrop = () => {
               <div className="bg-background/50 rounded-xl p-4 mb-6 border border-border/40 text-center">
                 <p className="text-xs text-muted-foreground mb-1">Your word</p>
                 {loadingWord ? (
-                  <p className="text-sm text-muted-foreground">Loading…</p>
+                  <div className="flex justify-center">
+                    <Skeleton className="h-8 w-32 bg-primary/20" />
+                  </div>
                 ) : secretWord ? (
                   <p className="text-xl font-heading font-bold text-primary">{secretWord}</p>
                 ) : (
@@ -509,7 +526,7 @@ const HintDrop = () => {
                   <span className="text-lg font-medium">Hint Submitted!</span>
                 </div>
                 <div className="p-4 rounded-xl bg-muted/50 border border-border/40">
-                  <span className="text-xl font-medium">"{hint}"</span>
+                  <span className="text-xl font-medium">"{hint || "..."}"</span>
                 </div>
                 <p className="text-sm text-muted-foreground">
                   Waiting for other players...
