@@ -69,33 +69,31 @@ const Lobby = () => {
     setPhase('lobby');
   }, [setPhase]);
 
-  const redirectByStatus = (roomData) => {
-    if (!roomData?.status || !roomCode) return;
-    if (!profileId) return;
-
-    const computedIsHost = !!(roomData.host_id && roomData.host_id === profileId);
-
-    // Keep lobby only for waiting state.
-    if (roomData.status === "playing") {
+  // Separate effect for navigation to prevent render cycle issues
+  useEffect(() => {
+    if (!room || isLoading) return;
+    
+    // Check phases and redirect if needed
+    if (room.status === "playing") {
       navigate(`/word/${roomCode}`, {
-        state: { playerName, isHost: computedIsHost, profileId },
+        state: { playerName, isHost: currentIsHost, profileId },
       });
       return;
     }
 
-    if (roomData.status === "hint_drop") {
+    if (room.status === "hint_drop") {
       navigate(`/hint/${roomCode}`, {
-        state: { playerName, isHost: computedIsHost, profileId },
+        state: { playerName, isHost: currentIsHost, profileId },
       });
       return;
     }
 
-    if (roomData.status === "discussion" || roomData.status === "finished") {
+    if (room.status === "discussion" || room.status === "finished") {
       navigate(`/discussion/${roomCode}`, {
-        state: { playerName, isHost: computedIsHost, profileId },
+        state: { playerName, isHost: currentIsHost, profileId },
       });
     }
-  };
+  }, [room?.status, isLoading, currentIsHost, navigate, roomCode, playerName, profileId]);
 
   // 📡 PRESENCE HOOK: Handles host transfer & ghost cleanup
   useRoomPresence(roomCode, room?.id, profileId, currentIsHost);
@@ -146,63 +144,71 @@ const Lobby = () => {
   useEffect(() => {
     let currentRoomId = null;
 
-    const fetchRoomData = async () => {
-      setIsLoading(true);
-      const { data: roomData, error: roomErr } = await supabase
-        .from("game_rooms")
-        .select(
-          "id, room_code, host_id, status, current_round, created_at, settings"
-        )
-        .eq("room_code", roomCode?.toUpperCase())
-        .single();
-
-      if (roomErr || !roomData) {
-        console.error("Room not found", roomErr);
-        toast.error("Room not found or inaccessible.");
-        navigate("/");
-        return;
-      }
-
-      currentRoomId = roomData.id;
-      setRoom(roomData);
+    const fetchRoomData = async (initialLoad = false) => {
+      if (initialLoad) setIsLoading(true);
       
-      // ✅ Initial sync: Apply DB settings
-      if (roomData.settings) {
-        setSettings(roomData.settings);
-      }
-      
-      if (profileId && roomData.host_id === profileId) {
-        setCurrentIsHost(true);
-      } else {
-        setCurrentIsHost(false);
-      }
+      try {
+        const { data: roomData, error: roomErr } = await supabase
+          .from("game_rooms")
+          .select(
+            "id, room_code, host_id, status, current_round, created_at, settings"
+          )
+          .eq("room_code", roomCode?.toUpperCase())
+          .single();
 
-      // 🔀 If the game already started (or advanced), jump to the right phase.
-      // This prevents players (and especially the host) getting stuck in Lobby.
-      redirectByStatus(roomData);
+        if (roomErr || !roomData) {
+          console.error("Room not found", roomErr);
+          toast.error("Room not found or inaccessible.");
+          navigate("/");
+          return;
+        }
 
-      // Fetch participants with their updated avatar configs
-      const { data: participants, error: partErr } = await supabase
-        .from("room_participants")
-        .select("*, profiles!room_participants_user_id_fkey(username, avatar_config)")
-        .eq("room_id", roomData.id);
+        currentRoomId = roomData.id;
+        
+        // Use functional update to avoid unnecessary re-renders if deep equal
+        setRoom(prev => {
+            if (JSON.stringify(prev) === JSON.stringify(roomData)) return prev;
+            return roomData;
+        });
+        
+        // ✅ Initial sync: Apply DB settings
+        if (roomData.settings) {
+          setSettings(roomData.settings);
+        }
+        
+        if (profileId && roomData.host_id === profileId) {
+          setCurrentIsHost(true);
+        } else {
+          setCurrentIsHost(false);
+        }
 
-      if (partErr) console.error("Error loading participants:", partErr);
-      setPlayers(participants || []);
-      setIsLoading(false);
+        // Fetch participants with their updated avatar configs
+        const { data: participants, error: partErr } = await supabase
+          .from("room_participants")
+          .select("*, profiles!room_participants_user_id_fkey(username, avatar_config)")
+          .eq("room_id", roomData.id);
 
-      // Set my initial avatar config from the list if available
-      const me = participants?.find(p => p.user_id === profileId);
-      if (me?.profiles?.avatar_config && Object.keys(me.profiles.avatar_config).length > 0) {
-         setMyAvatarConfig(me.profiles.avatar_config);
-      } else if (!myAvatarConfig) {
-         // Use the helper to generate a seed-based one initially
-         const newConfig = generateAvatarFromSeed(me?.profiles?.username || "default");
-         setMyAvatarConfig(newConfig);
+        if (partErr) console.error("Error loading participants:", partErr);
+        
+        setPlayers(participants || []);
+
+        // Set my initial avatar config from the list if available
+        const me = participants?.find(p => p.user_id === profileId);
+        if (me?.profiles?.avatar_config && Object.keys(me.profiles.avatar_config).length > 0) {
+          setMyAvatarConfig(me.profiles.avatar_config);
+        } else if (!myAvatarConfig) {
+          // Use the helper to generate a seed-based one initially
+          const newConfig = generateAvatarFromSeed(me?.profiles?.username || "default");
+          setMyAvatarConfig(newConfig);
+        }
+      } catch (err) {
+        console.error("Error fetching room data:", err);
+      } finally {
+        if (initialLoad) setIsLoading(false);
       }
     };
 
-    fetchRoomData();
+    fetchRoomData(true);
 
     // Single channel for all realtime updates
     const channel = supabase
@@ -214,7 +220,7 @@ const Lobby = () => {
           schema: "public",
           table: "room_participants",
         },
-        () => fetchRoomData() // Refresh list on join/leave
+        () => fetchRoomData(false) // Refresh list on join/leave, NO LOADING SPINNER
       )
       // Listen for PROFILE updates (name/avatar changes)
       .on(
@@ -226,7 +232,7 @@ const Lobby = () => {
         }, 
         () => {
            console.log("👤 Profile updated, refreshing list...");
-           fetchRoomData();
+           fetchRoomData(false); // No loading spinner
         }
       )
       .on(
@@ -253,8 +259,6 @@ const Lobby = () => {
             } else {
                 setCurrentIsHost(false);
             }
-
-            redirectByStatus(payload.new);
           }
         }
       )
