@@ -21,11 +21,13 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/lib/supabaseClient";
 import { useRoomPresence } from "@/lib/useRoomPresence";
 import { useMusic } from "@/contexts/MusicContext";
 import AvatarEditor from "@/components/AvatarEditor"; // Import the Editor
 import { generateAvatarFromSeed } from "@/lib/avatarUtils"; // Import deterministic generator
+import { toast } from "sonner"; // Import Sonner
 
 const Lobby = () => {
   const { roomCode } = useParams();
@@ -56,6 +58,7 @@ const Lobby = () => {
   });
   const [currentIsHost, setCurrentIsHost] = useState(isHost || false);
   const { setPhase } = useMusic();
+  const [isLoading, setIsLoading] = useState(true);
 
   // Avatar Editing State
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -133,7 +136,9 @@ const Lobby = () => {
 
     if (error) {
        console.error("Failed to update profile", error);
-       alert("Failed to save changes.");
+       toast.error("Failed to save changes.");
+    } else {
+       toast.success("Profile updated!");
     }
   };
 
@@ -142,6 +147,7 @@ const Lobby = () => {
     let currentRoomId = null;
 
     const fetchRoomData = async () => {
+      setIsLoading(true);
       const { data: roomData, error: roomErr } = await supabase
         .from("game_rooms")
         .select(
@@ -152,7 +158,7 @@ const Lobby = () => {
 
       if (roomErr || !roomData) {
         console.error("Room not found", roomErr);
-        alert("Room not found or inaccessible.");
+        toast.error("Room not found or inaccessible.");
         navigate("/");
         return;
       }
@@ -183,6 +189,7 @@ const Lobby = () => {
 
       if (partErr) console.error("Error loading participants:", partErr);
       setPlayers(participants || []);
+      setIsLoading(false);
 
       // Set my initial avatar config from the list if available
       const me = participants?.find(p => p.user_id === profileId);
@@ -282,7 +289,7 @@ const Lobby = () => {
   const handleStartGame = async () => {
     if (!currentIsHost || !room) return;
     if (!profileId) {
-      alert("Missing profile. Please re-join the room.");
+      toast.error("Missing profile. Please re-join the room.");
       return;
     }
 
@@ -301,7 +308,7 @@ const Lobby = () => {
 
       if (fnError) {
         console.error("Error calling start-round:", fnError);
-        alert("Failed to start game. Please try again.");
+        toast.error("Failed to start game. Please try again.");
         return;
       }
 
@@ -316,7 +323,7 @@ const Lobby = () => {
       });
     } catch (err) {
       console.error("Error starting game:", err);
-      alert("Failed to start game.");
+      toast.error("Failed to start game.");
     }
   };
 
@@ -573,7 +580,14 @@ const Lobby = () => {
             </div>
 
             <div className="flex-1 min-h-[300px] max-h-[50vh] lg:max-h-[60vh] overflow-y-auto space-y-3 bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-4 sm:p-6 custom-scrollbar">
-              {players.map((p, i) => {
+              {isLoading && players.length === 0 ? (
+                 <>
+                   <Skeleton className="h-16 w-full rounded-xl bg-muted/40" />
+                   <Skeleton className="h-16 w-full rounded-xl bg-muted/40" />
+                   <Skeleton className="h-16 w-full rounded-xl bg-muted/40" />
+                 </>
+              ) : (
+                players.map((p, i) => {
                  const isMe = p.user_id === profileId;
                  
                  // ✅ FIX: Use our new deterministic generator
@@ -589,8 +603,11 @@ const Lobby = () => {
                     className="flex items-center justify-between p-3 rounded-xl bg-background/50 border border-border/40 transition-all hover:bg-background/80 hover:border-primary/20"
                   >
                     <div className="flex items-center gap-3 sm:gap-4 overflow-hidden">
-                      {/* Avatar Display */}
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full overflow-hidden border border-border/50 bg-secondary/10 shrink-0">
+                      {/* Avatar Display - Clickable if isMe */}
+                      <div 
+                        className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full overflow-hidden border border-border/50 bg-secondary/10 shrink-0 ${isMe ? 'cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all' : ''}`}
+                        onClick={() => isMe && setIsEditorOpen(true)}
+                      >
                          <Avatar 
                            style={{ width: '100%', height: '100%' }} 
                            {...avatarConfig} 
@@ -617,9 +634,9 @@ const Lobby = () => {
                     )}
                   </div>
                  );
-              })}
+              }))}
               
-              {players.length === 0 && (
+              {!isLoading && players.length === 0 && (
                  <div className="text-center py-8 text-muted-foreground opacity-50">
                     Waiting for players...
                  </div>
