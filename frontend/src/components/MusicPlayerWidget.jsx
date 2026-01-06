@@ -4,12 +4,15 @@ import { Music, Volume2, VolumeX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useLocation } from 'react-router-dom';
 
 const MusicPlayerWidget = () => {
   const { isPlaying, toggleMusic, volume, setVolume, currentPhase } = useMusic();
+  const location = useLocation();
+  const isHome = location.pathname === "/";
 
   return (
-    <div className="fixed bottom-6 left-6 z-50 flex items-center gap-2 group">
+    <div className={`fixed bottom-6 left-6 z-50 ${isHome ? 'flex' : 'hidden lg:flex'} items-center gap-2 group`}>
       {/* Volume Slider (Revealed on Hover) */}
       <div className="w-0 overflow-hidden group-hover:w-32 transition-all duration-300 ease-out bg-slate-900/80 backdrop-blur-md rounded-full border border-cyan-500/20 shadow-lg shadow-cyan-500/10">
          <div className="p-3">

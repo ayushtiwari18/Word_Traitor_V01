@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabaseClient";
 import TraitorLeftModal from "@/components/TraitorLeftModal";
 import { leaveGameRoom } from "@/lib/gameUtils";
 import { useRoomPresence } from "@/lib/useRoomPresence";
+import { cn } from "@/lib/utils";
 
 const Whisper = () => {
   const REVEAL_DURATION_SECONDS = 10;
@@ -396,10 +397,10 @@ const Whisper = () => {
 
   return (
     <>
-      <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center">
-        {/* Exit Button - Top Left */}
-        <div className="absolute top-4 left-4 z-10">
-          <Button
+      <div className="min-h-[100dvh] bg-background gradient-mesh flex flex-col p-4">
+        {/* Header with Exit - Clean Row */}
+        <div className="w-full flex justify-between items-center mb-6">
+           <Button
             variant="ghost"
             size="sm"
             className="gap-2"
@@ -408,78 +409,63 @@ const Whisper = () => {
             <ArrowLeft className="w-4 h-4" />
             Exit
           </Button>
+
+          {/* Countdown prominent in header */}
+          <div className="text-right">
+             <div className="text-xs text-muted-foreground uppercase font-semibold">Starts in</div>
+             <div className={cn("text-2xl font-mono font-bold leading-none", countdown < 4 ? "text-red-500 animate-pulse" : "text-primary")}>
+                {countdown}s
+             </div>
+          </div>
         </div>
 
-        <div className="container max-w-lg mx-auto px-4">
-          <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-8 shadow-xl animate-fade-in-up text-center">
-            <h1 className="text-2xl font-heading font-bold mb-2">
+        <div className="flex-1 flex flex-col items-center justify-center container max-w-lg mx-auto">
+          <div className="w-full bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-6 sm:p-8 shadow-xl animate-fade-in-up text-center mb-8">
+            <h1 className="text-2xl sm:text-3xl font-heading font-bold mb-2">
               Your Secret Word
             </h1>
-            <p className="text-muted-foreground mb-8">
-              Memorize your word. Don't reveal it to others!
+            <p className="text-muted-foreground mb-8 text-sm sm:text-base">
+              Memorize it. Keep it secret.
             </p>
 
-            {/* Word Reveal Card */}
-            <div className="relative mb-8">
-              <div
-                className={`
-                p-8 rounded-xl border-2 transition-all duration-500
-                ${
-                  revealed
-                    ? "bg-gradient-to-br from-primary/20 to-secondary/20 border-primary/50"
-                    : "bg-muted/50 border-border/50"
-                }
-              `}
-              >
+            {/* Tap-to-Reveal Card (Toggle) */}
+            <div 
+               onClick={() => setRevealed(!revealed)}
+               className={cn(
+                  "relative cursor-pointer group select-none min-h-[200px] flex items-center justify-center rounded-xl border-2 transition-all duration-300",
+                  revealed 
+                     ? "bg-gradient-to-br from-primary/20 to-secondary/20 border-primary/50 shadow-[0_0_30px_rgba(var(--primary),0.2)]" 
+                     : "bg-muted/30 border-dashed border-border/60 hover:bg-muted/50 hover:border-primary/40"
+               )}
+            >
                 {revealed ? (
-                  <div className="animate-fade-in-up">
-                    <span className="text-4xl font-heading font-bold text-primary">
-                      {secretWord?.secret_word || "No word assigned"}
+                  <div className="animate-scale-in">
+                    <span className="block text-4xl sm:text-5xl font-heading font-black text-primary drop-shadow-md mb-2">
+                      {secretWord?.secret_word || "???"}
                     </span>
-                    {wordDescription && (
-                      <p className="mt-4 text-base text-muted-foreground italic">
-                        "{wordDescription}"
-                      </p>
-                    )}
+                    <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground uppercase tracking-widest mt-4">
+                       <EyeOff className="w-3 h-3" /> Tap to Hide
+                    </div>
                   </div>
                 ) : (
-                  <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                    <EyeOff className="w-6 h-6" />
-                    <span className="text-lg">Tap to reveal</span>
+                  <div className="flex flex-col items-center gap-3 text-muted-foreground group-hover:text-primary transition-colors">
+                    <div className="p-4 rounded-full bg-background/50 backdrop-blur-sm border border-border/50 group-hover:border-primary/50 transition-colors">
+                       <Eye className="w-8 h-8" />
+                    </div>
+                    <span className="text-lg font-medium">Tap to Reveal</span>
                   </div>
                 )}
-              </div>
-
-              {!revealed && (
-                <Button
-                  variant="neonCyan"
-                  size="lg"
-                  className="mt-4 gap-2"
-                  onClick={() => setRevealed(true)}
-                >
-                  <Eye className="w-5 h-5" />
-                  Reveal Word
-                </Button>
-              )}
             </div>
 
-            {revealed && (
-              <div className="space-y-4 animate-fade-in-up">
-                <p className="text-sm text-muted-foreground">
-                  Remember your word! The hint phase begins soon.
-                </p>
-
-                {countdown > 0 ? (
-                  <div className="text-lg font-mono text-primary">
-                    Moving to hint phase in {countdown}s...
-                  </div>
+            {/* Instruction Footer */}
+            <div className="mt-8 text-sm text-muted-foreground/80">
+                {revealed ? (
+                   <span className="text-primary animate-pulse">Memorize quickly!</span>
                 ) : (
-                  <div className="text-lg font-mono text-primary animate-pulse">
-                    Starting hint phase...
-                  </div>
+                   "Tap the box to peek at your word."
                 )}
-              </div>
-            )}
+            </div>
+
           </div>
         </div>
       </div>
