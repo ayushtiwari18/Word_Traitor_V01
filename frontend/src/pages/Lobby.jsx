@@ -8,7 +8,9 @@ import {
   Play,
   Users,
   Link2,
+  Edit2, // Added Edit Icon
 } from "lucide-react";
+import Avatar, { genConfig } from "react-nice-avatar"; // Import Avatar
 
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -22,6 +24,8 @@ import {
 import { supabase } from "@/lib/supabaseClient";
 import { useRoomPresence } from "@/lib/useRoomPresence";
 import { useMusic } from "@/contexts/MusicContext";
+import AvatarEditor from "@/components/AvatarEditor"; // Import the Editor
+import { generateAvatarFromSeed } from "@/lib/avatarUtils"; // Import deterministic generator
 
 const Lobby = () => {
   const { roomCode } = useParams();
@@ -52,6 +56,10 @@ const Lobby = () => {
   });
   const [currentIsHost, setCurrentIsHost] = useState(isHost || false);
   const { setPhase } = useMusic();
+
+  // Avatar Editing State
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [myAvatarConfig, setMyAvatarConfig] = useState(null);
 
   // 🎵 Set Music Phase
   useEffect(() => {
@@ -103,8 +111,29 @@ const Lobby = () => {
 
       if (error) {
         console.error("❌ Failed to update settings:", error);
-        // Optional: rollback state if needed, but rarely critical for game settings
       }
+    }
+  };
+
+  // Save Avatar & Name Changes
+  const handleSaveAvatar = async (newConfig, newName) => {
+    if (!profileId) return;
+    
+    // Update local state for instant feedback
+    setMyAvatarConfig(newConfig);
+    
+    // Update DB
+    const { error } = await supabase
+      .from("profiles")
+      .update({ 
+        avatar_config: newConfig,
+        username: newName 
+      })
+      .eq("id", profileId);
+
+    if (error) {
+       console.error("Failed to update profile", error);
+       alert("Failed to save changes.");
     }
   };
 
@@ -146,13 +175,24 @@ const Lobby = () => {
       // This prevents players (and especially the host) getting stuck in Lobby.
       redirectByStatus(roomData);
 
+      // Fetch participants with their updated avatar configs
       const { data: participants, error: partErr } = await supabase
         .from("room_participants")
-        .select("*, profiles!room_participants_user_id_fkey(username)")
+        .select("*, profiles!room_participants_user_id_fkey(username, avatar_config)")
         .eq("room_id", roomData.id);
 
       if (partErr) console.error("Error loading participants:", partErr);
       setPlayers(participants || []);
+
+      // Set my initial avatar config from the list if available
+      const me = participants?.find(p => p.user_id === profileId);
+      if (me?.profiles?.avatar_config && Object.keys(me.profiles.avatar_config).length > 0) {
+         setMyAvatarConfig(me.profiles.avatar_config);
+      } else if (!myAvatarConfig) {
+         // Use the helper to generate a seed-based one initially
+         const newConfig = generateAvatarFromSeed(me?.profiles?.username || "default");
+         setMyAvatarConfig(newConfig);
+      }
     };
 
     fetchRoomData();
@@ -167,10 +207,19 @@ const Lobby = () => {
           schema: "public",
           table: "room_participants",
         },
-        (payload) => {
-          console.log("🔄 Participant change detected:", payload);
-          // Only re-fetch participants to be lighter
-          fetchRoomData();
+        () => fetchRoomData() // Refresh list on join/leave
+      )
+      // Listen for PROFILE updates (name/avatar changes)
+      .on(
+        "postgres_changes", 
+        { 
+           event: "UPDATE", 
+           schema: "public", 
+           table: "profiles" 
+        }, 
+        () => {
+           console.log("👤 Profile updated, refreshing list...");
+           fetchRoomData();
         }
       )
       .on(
@@ -490,24 +539,51 @@ const Lobby = () => {
             </div>
 
             <div className="space-y-3 bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-6">
-              {players.map((p, i) => (
-                <div
-                  key={p.id || i}
-                  className="flex items-center justify-between p-3 rounded-xl bg-background/50 border border-border/40"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary/30 to-secondary/30 flex items-center justify-center text-sm font-bold">
-                      {p.profiles?.username?.charAt(0)?.toUpperCase()}
+              {players.map((p, i) => {
+                 const isMe = p.user_id === profileId;
+                 
+                 // ✅ FIX: Use our new deterministic generator
+                 // This ensures the same config is generated for the same username every time
+                 // even across re-renders
+                 const avatarConfig = p.profiles?.avatar_config && Object.keys(p.profiles.avatar_config).length > 0
+                    ? p.profiles.avatar_config
+                    : generateAvatarFromSeed(p.profiles?.username || p.user_id);
+
+                 return (
+                  <div
+                    key={p.id || i}
+                    className="flex items-center justify-between p-3 rounded-xl bg-background/50 border border-border/40"
+                  >
+                    <div className="flex items-center gap-4">
+                      {/* Avatar Display */}
+                      <div className="w-12 h-12 rounded-full overflow-hidden border border-border/50 bg-secondary/10 shrink-0">
+                         <Avatar 
+                           style={{ width: '100%', height: '100%' }} 
+                           {...avatarConfig} 
+                         />
+                      </div>
+                      
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-lg">{p.profiles?.username}</span>
+                        {isMe && (
+                           <button 
+                              onClick={() => setIsEditorOpen(true)}
+                              className="text-xs text-primary flex items-center gap-1 hover:underline"
+                           >
+                              <Edit2 className="w-3 h-3" /> Customize
+                           </button>
+                        )}
+                      </div>
                     </div>
-                    <span>{p.profiles?.username}</span>
+
+                    {p.user_id === room?.host_id && (
+                      <span className="text-xs bg-primary/20 text-primary px-2 py-1 rounded-full font-bold">
+                        Host
+                      </span>
+                    )}
                   </div>
-                  {p.user_id === room?.host_id && (
-                    <span className="text-xs text-primary font-semibold">
-                      Host
-                    </span>
-                  )}
-                </div>
-              ))}
+                 );
+              })}
             </div>
 
             {/* Invite Players Card */}
@@ -568,6 +644,15 @@ const Lobby = () => {
           </div>
         </div>
       </div>
+
+      {/* Avatar Editor Dialog */}
+      <AvatarEditor 
+        isOpen={isEditorOpen} 
+        onClose={() => setIsEditorOpen(false)}
+        initialConfig={myAvatarConfig}
+        initialName={players.find(p => p.user_id === profileId)?.profiles?.username}
+        onSave={handleSaveAvatar}
+      />
     </div>
   );
 };
