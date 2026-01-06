@@ -17,7 +17,8 @@ import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import { useMusic } from "@/contexts/MusicContext";
 import GlobalStats from "@/components/GlobalStats";
-import { generateComicIndianName } from "@/lib/indianNameUtils"; // Import the comic name generator
+import { generateComicIndianName } from "@/lib/indianNameUtils";
+import { toast } from "sonner"; // Import Sonner Toast
 
 // Generate a random 6-letter room code
 const generateRoomCode = () => {
@@ -141,14 +142,14 @@ const Index = () => {
         .single();
 
       if (roomErr || !roomData) {
-        alert("Room not found or has ended.");
+        toast.error("Room not found or has ended.");
         setAutoJoining(false);
         setShowNameModal(false);
         return;
       }
 
       if (roomData.status !== "waiting") {
-        alert("This game has already started.");
+        toast.error("This game has already started.");
         setAutoJoining(false);
         setShowNameModal(false);
         return;
@@ -169,7 +170,7 @@ const Index = () => {
 
       if (profileErr) {
         console.error("Error creating profile:", profileErr);
-        alert("Failed to join room. Please try again.");
+        toast.error("Failed to join room. Please try again.");
         setAutoJoining(false);
         setShowNameModal(false);
         return;
@@ -185,7 +186,7 @@ const Index = () => {
 
       if (joinErr) {
         console.error("Error joining room:", joinErr);
-        alert("Failed to join room. Please try again.");
+        toast.error("Failed to join room. Please try again.");
         setAutoJoining(false);
         setShowNameModal(false);
         return;
@@ -207,7 +208,7 @@ const Index = () => {
       });
     } catch (error) {
       console.error("Auto-join error:", error);
-      alert("An error occurred while joining the room.");
+      toast.error("An error occurred while joining the room.");
       setAutoJoining(false);
       setShowNameModal(false);
     }
@@ -220,11 +221,6 @@ const Index = () => {
     } else {
       autoJoinRoom(autoJoinRoomCode, playerName);
     }
-    setShowNameModal(false);
-  };
-
-  const handleSkipName = () => {
-    autoJoinRoom(autoJoinRoomCode, generateComicIndianName());
     setShowNameModal(false);
   };
 
@@ -243,7 +239,7 @@ const Index = () => {
 
   // Create Room
   const handleCreateRoom = async () => {
-    if (!playerName.trim()) return alert("Please enter your name first.");
+    if (!playerName.trim()) return toast.warning("Please enter your name first.");
     try {
       const roomCode = generateRoomCode();
 
@@ -287,14 +283,14 @@ const Index = () => {
       });
     } catch (err) {
       console.error("Error creating room:", err);
-      alert("Failed to create room. Check console for details.");
+      toast.error("Failed to create room. Check console for details.");
     }
   };
 
   // Join Room
   const handleJoinRoom = async () => {
-    if (!playerName.trim()) return alert("Enter your name first.");
-    if (!joinCode.trim()) return alert("Enter a valid room code.");
+    if (!playerName.trim()) return toast.warning("Enter your name first.");
+    if (!joinCode.trim()) return toast.warning("Enter a valid room code.");
 
     const code = joinCode.trim().toUpperCase();
 
@@ -306,7 +302,7 @@ const Index = () => {
         .single();
 
       if (roomError || !room) {
-        alert("Room not found or already started.");
+        toast.error("Room not found or already started.");
         return;
       }
 
@@ -343,7 +339,7 @@ const Index = () => {
       });
     } catch (err) {
       console.error("Error joining room:", err);
-      alert("Failed to join room. Check console for details.");
+      toast.error("Failed to join room. Check console for details.");
     }
   };
 
