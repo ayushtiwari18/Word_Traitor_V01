@@ -353,7 +353,7 @@ const Index = () => {
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl"></div>
         </div>
 
-        <div className="relative z-10 flex items-center justify-center min-h-screen p-4">
+        <div className="relative z-10 flex items-center justify-center min-h-[100dvh] p-4">
           <div className="w-full max-w-lg">
             {/* Modal Card */}
             <div className="bg-slate-900/80 backdrop-blur-xl rounded-2xl p-6 sm:p-8 border border-cyan-500/20 shadow-2xl shadow-cyan-500/10">
@@ -376,8 +376,8 @@ const Index = () => {
               {/* Name Input */}
               <div className="space-y-4 sm:space-y-6">
                 <div className="space-y-2">
-                  <label className="text-xs sm:text-sm font-medium text-slate-300 flex items-center gap-2">
-                    <KeyRound className="w-3 h-3 sm:w-4 sm:h-4 text-cyan-400" />
+                  <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                    <KeyRound className="w-4 h-4 text-cyan-400" />
                     Your Display Name
                   </label>
                   <Input
@@ -387,7 +387,7 @@ const Index = () => {
                     onKeyPress={(e) => {
                       if (e.key === "Enter") handleNameModalSubmit();
                     }}
-                    className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 h-10 sm:h-12 text-base sm:text-lg"
+                    className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 h-11 sm:h-12 text-base"
                     maxLength={20}
                     autoFocus
                   />
@@ -436,7 +436,7 @@ const Index = () => {
   }
 
   return (
-    <section className="relative min-h-screen flex flex-col items-center justify-center px-4 py-8 gradient-mesh pb-20 sm:pb-16">
+    <section className="relative min-h-[100dvh] flex flex-col items-center justify-between px-4 py-6 sm:py-8 gradient-mesh overflow-x-hidden">
       <ParticleBackground />
 
       {/* Top icons */}
@@ -448,22 +448,23 @@ const Index = () => {
           <Button
             variant="ghost"
             size="icon"
-            className="text-muted-foreground hover:text-primary h-8 w-8 sm:h-10 sm:w-10"
+            className="text-muted-foreground hover:text-primary h-10 w-10 sm:h-10 sm:w-10"
           >
-            <Info className="w-4 h-4 sm:w-5 sm:h-5" />
+            <Info className="w-5 h-5 sm:w-5 sm:h-5" />
           </Button>
         </Link>
       </div>
 
-      {/* Title */}
-      <div className="flex flex-col items-center text-center z-10 max-w-xl px-4">
-        <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-heading font-extrabold tracking-tight animate-fade-in-up">
+      {/* Main Content Centered */}
+      <div className="flex-1 flex flex-col items-center justify-center w-full z-10 max-w-xl">
+        {/* Title */}
+        <h1 className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-heading font-extrabold tracking-tight animate-fade-in-up text-center mt-8 sm:mt-0">
           <span className="text-primary text-glow-cyan">Word</span>
           <span className="text-secondary text-glow-purple">Traitor</span>
         </h1>
 
         <p
-          className="text-base sm:text-lg md:text-xl text-muted-foreground mt-3 sm:mt-4 mb-8 sm:mb-10 animate-fade-in-up font-light tracking-wide px-4"
+          className="text-base sm:text-lg md:text-xl text-muted-foreground mt-3 sm:mt-4 mb-8 sm:mb-10 animate-fade-in-up font-light tracking-wide px-4 text-center"
           style={{ animationDelay: "0.2s" }}
         >
           One word apart. One traitor among you.
@@ -478,14 +479,14 @@ const Index = () => {
             placeholder="Enter your name..."
             value={playerName}
             onChange={(e) => setPlayerName(e.target.value)}
-            className="w-full max-w-xs bg-card/40 border border-border/50 focus:border-primary placeholder:text-muted-foreground/70 h-10 sm:h-11 text-sm sm:text-base"
+            className="w-full max-w-xs bg-card/40 border border-border/50 focus:border-primary placeholder:text-muted-foreground/70 h-11 sm:h-11 text-base"
             maxLength={20}
           />
         </div>
 
         {/* Room actions */}
         <div
-          className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mt-8 sm:mt-12 animate-fade-in-up w-full max-w-2xl px-4"
+          className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mt-6 sm:mt-12 animate-fade-in-up w-full max-w-2xl px-4"
           style={{ animationDelay: "0.6s" }}
         >
           {/* Create Room */}
@@ -493,16 +494,16 @@ const Index = () => {
             id="create-room-btn"
             onClick={handleCreateRoom}
             className={cn(
-              "group relative p-6 sm:p-8 rounded-2xl border-2 bg-card/40 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all duration-300 backdrop-blur-md overflow-hidden min-h-[140px] sm:min-h-[180px]"
+              "group relative p-5 sm:p-8 rounded-2xl border-2 bg-card/40 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all duration-300 backdrop-blur-md overflow-hidden min-h-[120px] sm:min-h-[180px]"
             )}
           >
             <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-secondary/20 opacity-0 group-hover:opacity-100 blur-2xl transition-all" />
-            <div className="relative flex flex-col items-center text-center gap-3 sm:gap-4">
+            <div className="relative flex flex-col items-center text-center gap-2 sm:gap-4">
               <PlusCircle className="w-8 h-8 sm:w-10 sm:h-10 text-primary group-hover:scale-110 transition-transform" />
               <h3 className="font-heading text-lg sm:text-xl font-semibold text-primary">
                 Create Room
               </h3>
-              <p className="text-xs sm:text-sm text-muted-foreground max-w-[200px]">
+              <p className="text-sm text-muted-foreground max-w-[200px]">
                 Start a new circle and invite friends.
               </p>
             </div>
@@ -513,80 +514,82 @@ const Index = () => {
             id="join-room-btn"
             onClick={() => setJoining(true)}
             className={cn(
-              "group relative p-6 sm:p-8 rounded-2xl border-2 bg-card/40 border-secondary/30 hover:border-secondary hover:bg-secondary/10 transition-all duration-300 backdrop-blur-md overflow-hidden min-h-[140px] sm:min-h-[180px]"
+              "group relative p-5 sm:p-8 rounded-2xl border-2 bg-card/40 border-secondary/30 hover:border-secondary hover:bg-secondary/10 transition-all duration-300 backdrop-blur-md overflow-hidden min-h-[120px] sm:min-h-[180px]"
             )}
           >
             <div className="absolute inset-0 bg-gradient-to-br from-secondary/20 to-primary/20 opacity-0 group-hover:opacity-100 blur-2xl transition-all" />
-            <div className="relative flex flex-col items-center text-center gap-3 sm:gap-4">
+            <div className="relative flex flex-col items-center text-center gap-2 sm:gap-4">
               <Users className="w-8 h-8 sm:w-10 sm:h-10 text-secondary group-hover:scale-110 transition-transform" />
               <h3 className="font-heading text-lg sm:text-xl font-semibold text-secondary">
                 Join Room
               </h3>
-              <p className="text-xs sm:text-sm text-muted-foreground max-w-[200px]">
+              <p className="text-sm text-muted-foreground max-w-[200px]">
                 Enter a room code to join your friends.
               </p>
             </div>
           </button>
         </div>
-
-        {/* Join Room Modal */}
-        {joining && (
-          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in-up p-4">
-            <div className="p-6 sm:p-8 bg-card/70 border border-border/50 rounded-2xl shadow-lg max-w-sm w-full text-center">
-              <h3 className="font-heading text-lg sm:text-xl mb-4 flex items-center justify-center gap-2">
-                <KeyRound className="w-4 h-4 sm:w-5 sm:h-5 text-primary" /> Enter Room Code
-              </h3>
-              <Input
-                placeholder="e.g. A1B2C3"
-                value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === "Enter") handleJoinRoom();
-                }}
-                className="mb-4 text-center uppercase h-10 sm:h-11 text-sm sm:text-base"
-                maxLength={6}
-                autoFocus
-              />
-              <div className="flex gap-3 justify-center">
-                <Button variant="neonCyan" onClick={handleJoinRoom} className="text-sm sm:text-base px-4 sm:px-6">
-                  Join
-                </Button>
-                <Button variant="ghost" onClick={() => setJoining(false)} className="text-sm sm:text-base px-4 sm:px-6">
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Global Stats (subtle, not affecting layout) */}
-      <div
-        className="absolute bottom-24 sm:bottom-16 left-0 right-0 flex justify-center z-10 animate-fade-in-up px-4"
-        style={{ animationDelay: "0.9s" }}
-      >
-        <div className="opacity-75 hover:opacity-100 transition-opacity">
+      {/* Global Stats + Footer Area */}
+      <div className="w-full flex flex-col items-center gap-6 z-10 animate-fade-in-up mt-8">
+        
+        {/* Stats */}
+        <div
+          className="opacity-75 hover:opacity-100 transition-opacity"
+          style={{ animationDelay: "0.9s" }}
+        >
           <GlobalStats />
+        </div>
+
+        {/* Footer */}
+        <div
+          className="flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs text-muted-foreground px-4 text-center"
+          style={{ animationDelay: "1s" }}
+        >
+          <Link to="/terms" className="hover:text-primary transition-colors py-2">
+            Terms of Service
+          </Link>
+          <span className="text-muted-foreground/30 hidden sm:inline py-2">•</span>
+          <Link to="/privacy" className="hover:text-primary transition-colors py-2">
+            Privacy Policy
+          </Link>
+          <span className="text-muted-foreground/30 hidden sm:inline py-2">•</span>
+          <Link to="/about" className="hover:text-primary transition-colors py-2">
+            About
+          </Link>
         </div>
       </div>
 
-      {/* Footer */}
-      <div
-        className="absolute bottom-4 sm:bottom-6 left-0 right-0 flex flex-wrap justify-center gap-3 sm:gap-6 text-xs text-muted-foreground animate-fade-in-up px-4"
-        style={{ animationDelay: "1s" }}
-      >
-        <Link to="/terms" className="hover:text-primary transition-colors">
-          Terms of Service
-        </Link>
-        <span className="text-muted-foreground/30">•</span>
-        <Link to="/privacy" className="hover:text-primary transition-colors">
-          Privacy Policy
-        </Link>
-        <span className="text-muted-foreground/30 hidden sm:inline">•</span>
-        <Link to="/about" className="hover:text-primary transition-colors w-full sm:w-auto text-center">
-          About
-        </Link>
-      </div>
+      {/* Join Room Modal */}
+      {joining && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in-up p-4">
+          <div className="p-6 sm:p-8 bg-card/70 border border-border/50 rounded-2xl shadow-lg max-w-sm w-full text-center">
+            <h3 className="font-heading text-lg sm:text-xl mb-4 flex items-center justify-center gap-2">
+              <KeyRound className="w-4 h-4 sm:w-5 sm:h-5 text-primary" /> Enter Room Code
+            </h3>
+            <Input
+              placeholder="e.g. A1B2C3"
+              value={joinCode}
+              onChange={(e) => setJoinCode(e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === "Enter") handleJoinRoom();
+              }}
+              className="mb-4 text-center uppercase h-11 sm:h-11 text-base"
+              maxLength={6}
+              autoFocus
+            />
+            <div className="flex gap-3 justify-center">
+              <Button variant="neonCyan" onClick={handleJoinRoom} className="text-base px-6">
+                Join
+              </Button>
+              <Button variant="ghost" onClick={() => setJoining(false)} className="text-base px-6">
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 };
