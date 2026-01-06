@@ -185,11 +185,16 @@ const Lobby = () => {
 
       // Set my initial avatar config from the list if available
       const me = participants?.find(p => p.user_id === profileId);
-      if (me?.profiles?.avatar_config) {
+      if (me?.profiles?.avatar_config && Object.keys(me.profiles.avatar_config).length > 0) {
          setMyAvatarConfig(me.profiles.avatar_config);
       } else if (!myAvatarConfig) {
-         // Generate random if none exists
-         setMyAvatarConfig(genConfig()); 
+         // Generate random ONLY if none exists in state AND none in DB
+         // We do this ONCE to avoid re-generating on every render
+         const newConfig = genConfig({ seed: me?.profiles?.username || "random" });
+         setMyAvatarConfig(newConfig);
+         
+         // OPTIONAL: Save this initial random one to DB so it persists
+         // supabase.from("profiles").update({ avatar_config: newConfig }).eq("id", profileId);
       }
     };
 
@@ -539,6 +544,12 @@ const Lobby = () => {
             <div className="space-y-3 bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-6">
               {players.map((p, i) => {
                  const isMe = p.user_id === profileId;
+                 // Use saved config OR generate consistent one based on username seed
+                 // This fixes the "random on every click" issue
+                 const avatarConfig = p.profiles?.avatar_config && Object.keys(p.profiles.avatar_config).length > 0
+                    ? p.profiles.avatar_config
+                    : genConfig({ seed: p.profiles?.username || p.user_id });
+
                  return (
                   <div
                     key={p.id || i}
@@ -549,7 +560,7 @@ const Lobby = () => {
                       <div className="w-12 h-12 rounded-full overflow-hidden border border-border/50 bg-secondary/10 shrink-0">
                          <Avatar 
                            style={{ width: '100%', height: '100%' }} 
-                           {...(p.profiles?.avatar_config || genConfig({ seed: p.profiles?.username }))} 
+                           {...avatarConfig} 
                          />
                       </div>
                       
