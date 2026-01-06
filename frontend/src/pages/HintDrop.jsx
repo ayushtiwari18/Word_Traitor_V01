@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/lib/supabaseClient";
 import { leaveGameRoom } from "@/lib/gameUtils";
 import { useRoomPresence } from "@/lib/useRoomPresence";
+import { cn } from "@/lib/utils";
 
 const HintDrop = () => {
   const { roomCode } = useParams();
@@ -438,132 +439,135 @@ const HintDrop = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center relative">
-       {/* Exit Button - Top Left */}
-       <div className="absolute top-4 left-4 z-10">
+    <div className="min-h-[100dvh] bg-background gradient-mesh flex flex-col p-4 overflow-hidden">
+       {/* Header: Exit + Timer + Secret Word (Sticky for visibility) */}
+       <div className="w-full flex justify-between items-start mb-4 shrink-0">
           <Button
             variant="ghost"
             size="sm"
-            className="gap-2"
+            className="gap-2 -ml-2 text-muted-foreground hover:text-foreground"
             onClick={handleExitGame}
           >
             <ArrowLeft className="w-4 h-4" />
             Exit
           </Button>
+
+          {/* Sticky Word & Timer Block */}
+          <div className="flex flex-col items-end">
+             <div className="flex items-center gap-1.5 mb-1 bg-card/60 backdrop-blur-sm px-3 py-1 rounded-full border border-border/30">
+                <Clock className={cn("w-4 h-4", timeLeft <= 10 ? "text-red-500 animate-pulse" : "text-primary")} />
+                <span className={cn("font-mono font-bold text-lg leading-none", timeLeft <= 10 ? "text-red-500" : "text-primary")}>
+                  {formatTime(timeLeft)}
+                </span>
+             </div>
+             
+             {/* Secret Word Reminder (Small but always visible) */}
+             {!isSpectator && (
+               <div className="text-xs text-right">
+                  <span className="text-muted-foreground mr-1">Your word:</span>
+                  {loadingWord ? (
+                     <span className="inline-block w-12 h-3 bg-muted animate-pulse rounded"/>
+                  ) : (
+                     <span className="font-bold text-primary">{secretWord || "..."}</span>
+                  )}
+               </div>
+             )}
+          </div>
         </div>
 
-      <div className="container max-w-lg mx-auto px-4">
-        <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-8 shadow-xl animate-fade-in-up">
-          {/* Timer */}
-          <div className="flex items-center justify-center gap-2 mb-6">
-            <Clock className={`w-6 h-6 ${timeLeft <= 10 ? "text-red-500 animate-pulse" : "text-primary"}`} />
-            <span className={`text-3xl font-mono font-bold ${timeLeft <= 10 ? "text-red-500" : "text-primary"}`}>
-              {formatTime(timeLeft)}
-            </span>
-          </div>
-
+      {/* Main Content Area - Centered Input */}
+      <div className="flex-1 flex flex-col justify-start sm:justify-center container max-w-lg mx-auto pt-4 sm:pt-0 pb-4 overflow-y-auto">
+        
           {isSpectator ? (
-            <>
+            <div className="text-center bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-8">
               <h1 className="text-2xl font-heading font-bold text-center mb-2">
                 👻 Spectator Mode
               </h1>
-              <p className="text-muted-foreground text-center mb-8">
+              <p className="text-muted-foreground text-center mb-4">
                 You were eliminated. Watch as others drop their hints.
               </p>
-            </>
+            </div>
           ) : (
             <>
-              <h1 className="text-2xl font-heading font-bold text-center mb-2">
-                Drop Your Hint
-              </h1>
-              <p className="text-muted-foreground text-center mb-8">
-                Give a one-word hint related to your secret word
-              </p>
-
-              <div className="bg-background/50 rounded-xl p-4 mb-6 border border-border/40 text-center">
-                <p className="text-xs text-muted-foreground mb-1">Your word</p>
-                {loadingWord ? (
-                  <div className="flex justify-center">
-                    <Skeleton className="h-8 w-32 bg-primary/20" />
+              {!submitted ? (
+                <div className="w-full space-y-4 animate-fade-in-up">
+                   <div className="text-center mb-2">
+                      <h1 className="text-2xl font-heading font-bold">Drop Your Hint</h1>
+                      <p className="text-sm text-muted-foreground">One word related to <span className="text-primary font-bold">{secretWord}</span></p>
+                   </div>
+                   
+                   <div className="bg-card/60 backdrop-blur-xl border border-border/50 rounded-2xl p-4 sm:p-6 shadow-lg">
+                      <Input
+                        type="text"
+                        placeholder="Type hint here..."
+                        value={hint}
+                        onChange={(e) => setHint(e.target.value)}
+                        className="text-center text-xl h-14 bg-background/50 border-border/60 focus:ring-2 focus:ring-primary/50 mb-4"
+                        maxLength={30}
+                        autoFocus
+                        disabled={timeLeft <= 0 || loadingWord || !secretWord}
+                        onKeyDown={(e) => {
+                           if (e.key === "Enter" && hint.trim()) handleSubmitHint();
+                        }}
+                      />
+                      <Button
+                        variant="neonCyan"
+                        size="lg"
+                        className="w-full gap-2 h-12 text-lg shadow-lg shadow-primary/20"
+                        onClick={handleSubmitHint}
+                        disabled={!hint.trim() || timeLeft <= 0 || loadingWord || !secretWord}
+                      >
+                        <Send className="w-5 h-5" />
+                        Submit Hint
+                      </Button>
+                   </div>
+                </div>
+              ) : (
+                <div className="text-center space-y-4 bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-8 animate-scale-in">
+                  <div className="flex items-center justify-center gap-2 text-green-500">
+                    <CheckCircle className="w-8 h-8" />
                   </div>
-                ) : secretWord ? (
-                  <p className="text-xl font-heading font-bold text-primary">{secretWord}</p>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Waiting for word assignment…</p>
-                )}
-              </div>
+                  <h2 className="text-xl font-bold">Hint Sent!</h2>
+                  <div className="p-4 rounded-xl bg-muted/50 border border-border/40">
+                    <span className="text-2xl font-medium text-primary">"{hint || "..."}"</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Waiting for others...
+                  </p>
+                </div>
+              )}
             </>
           )}
 
-          {/* Hint Input - only show for non-spectators */}
-          {!isSpectator && (
-            !submitted ? (
-              <div className="space-y-4">
-                <Input
-                  type="text"
-                  placeholder="Enter your hint..."
-                  value={hint}
-                  onChange={(e) => setHint(e.target.value)}
-                  className="text-center text-lg py-6 bg-background/50 border-border/40"
-                  maxLength={30}
-                  disabled={timeLeft <= 0 || loadingWord || !secretWord}
-                />
-                <Button
-                  variant="neonCyan"
-                  size="lg"
-                  className="w-full gap-2"
-                  onClick={handleSubmitHint}
-                  disabled={!hint.trim() || timeLeft <= 0 || loadingWord || !secretWord}
-                >
-                  <Send className="w-5 h-5" />
-                  Submit Hint
-                </Button>
-              </div>
-            ) : (
-              <div className="text-center space-y-4">
-                <div className="flex items-center justify-center gap-2 text-green-500">
-                  <CheckCircle className="w-6 h-6" />
-                  <span className="text-lg font-medium">Hint Submitted!</span>
-                </div>
-                <div className="p-4 rounded-xl bg-muted/50 border border-border/40">
-                  <span className="text-xl font-medium">"{hint || "..."}"</span>
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  Waiting for other players...
-                </p>
-              </div>
-            )
-          )}
-
-          {/* Progress */}
-          <div className="mt-8 pt-6 border-t border-border/40">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
-              <Users className="w-4 h-4" />
-              <span>
-                {submittedPlayers.length} / {alivePlayers.length} players submitted
+          {/* Progress List (Compact for mobile) */}
+          <div className="mt-8">
+            <div className="flex items-center justify-between text-xs text-muted-foreground mb-3 px-1">
+              <span className="flex items-center gap-1.5 font-medium">
+                 <Users className="w-3.5 h-3.5" /> Who submitted?
               </span>
+              <span>{submittedPlayers.length} / {alivePlayers.length}</span>
             </div>
+            
             <div className="flex flex-wrap gap-2">
-              {alivePlayers.map((p) => (
-                <div
-                  key={p.id}
-                  className={`
-                    px-3 py-1.5 rounded-full text-sm font-medium transition-all
-                    ${submittedPlayers.includes(p.user_id)
-                      ? "bg-green-500/20 text-green-400 border border-green-500/30"
-                      : "bg-muted/50 text-muted-foreground border border-border/40"
-                    }
-                  `}
-                >
-                  {p.profiles?.username}
-                  {submittedPlayers.includes(p.user_id) && (
-                    <CheckCircle className="w-3 h-3 inline ml-1" />
-                  )}
-                </div>
-              ))}
+              {alivePlayers.map((p) => {
+                 const isDone = submittedPlayers.includes(p.user_id);
+                 return (
+                  <div
+                    key={p.id}
+                    className={cn(
+                      "px-3 py-1.5 rounded-full text-xs font-medium transition-all border flex items-center gap-1.5",
+                      isDone
+                        ? "bg-green-500/10 text-green-400 border-green-500/30"
+                        : "bg-muted/30 text-muted-foreground border-border/30 opacity-60"
+                    )}
+                  >
+                    {p.profiles?.username}
+                    {isDone && <CheckCircle className="w-3 h-3" />}
+                  </div>
+                 );
+              })}
             </div>
           </div>
-        </div>
       </div>
     </div>
   );
