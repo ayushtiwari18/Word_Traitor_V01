@@ -132,7 +132,25 @@ const HintDrop = () => {
         setRoom(roomData);
         const time = roomData.settings?.hintTime || 30;
         setHintTime(time);
-        setTimeLeft(computeTimeLeft(roomData?.settings?.hintStartedAt, time));
+        
+        // Ensure hint phase start is persisted
+        const isHostFromRoom = !!(roomData.host_id && profileId && roomData.host_id === profileId);
+        let startedAt = roomData.settings?.hintStartedAt;
+
+        if (!startedAt && isHostFromRoom) {
+          startedAt = await getServerNowIso();
+          await supabase
+            .from("game_rooms")
+            .update({
+              settings: {
+                ...(roomData.settings || {}),
+                hintStartedAt: startedAt,
+              },
+            })
+            .eq("id", roomData.id);
+        }
+
+        setTimeLeft(computeTimeLeft(startedAt, time));
 
         // Load secret word
         try {
@@ -154,23 +172,6 @@ const HintDrop = () => {
           setLoadingWord(false);
         }
 
-        // Ensure hint phase start is persisted
-        const isHostFromRoom = !!(roomData.host_id && profileId && roomData.host_id === profileId);
-        if (!roomData?.settings?.hintStartedAt && isHostFromRoom) {
-          const startedAt = await getServerNowIso();
-          await supabase
-            .from("game_rooms")
-            .update({
-              settings: {
-                ...(roomData.settings || {}),
-                hintStartedAt: startedAt,
-              },
-            })
-            .eq("id", roomData.id);
-
-          setTimeLeft(computeTimeLeft(startedAt, time));
-        }
-
         // Get participants
         const { data: participants } = await supabase
           .from("room_participants")
@@ -189,7 +190,7 @@ const HintDrop = () => {
           isSubmittingRef.current = true; // Mark submitted logic as done for spectator
         }
 
-        // Check existing hint
+        // Check existing hint with TIMESTAMP VALIDATION
         const { data: existingHint } = await supabase
           .from("game_hints")
           .select("*")
@@ -198,13 +199,25 @@ const HintDrop = () => {
           .single();
 
         if (existingHint) {
-          setSubmitted(true);
-          setHint(existingHint.hint);
-          isSubmittingRef.current = true; // Already locked
+           // 🛡️ CRITICAL FIX: Timestamp Validation
+           // If hint was created BEFORE the current hint phase started (minus buffer), it's stale.
+           // Use the startedAt timestamp we just got/set
+           const hintTime = new Date(existingHint.created_at).getTime();
+           const roundStartTime = startedAt ? new Date(startedAt).getTime() : 0;
+           
+           // If hint is older than the start of this hint phase (with 2s buffer for clock skew), ignore it
+           if (roundStartTime > 0 && hintTime >= (roundStartTime - 2000)) {
+              setSubmitted(true);
+              setHint(existingHint.hint);
+              isSubmittingRef.current = true;
+           } else {
+              console.log("Ignoring stale hint from previous round:", existingHint.hint);
+              // Do NOT set submitted=true
+           }
         }
 
         // Get all hints progress
-        fetchSubmittedHints(roomData.id);
+        fetchSubmittedHints(roomData.id, startedAt);
       } catch (error) {
         console.error("Error:", error);
         setLoadingWord(false);
@@ -214,13 +227,23 @@ const HintDrop = () => {
     fetchData();
   }, [roomCode, navigate, profileId]);
 
-  // Fetch submitted hints
-  const fetchSubmittedHints = async (roomId) => {
-    const { data: hints } = await supabase
+  // Fetch submitted hints with optional time filter
+  const fetchSubmittedHints = async (roomId, minTimeIso) => {
+    let query = supabase
       .from("game_hints")
-      .select("user_id")
+      .select("user_id, created_at")
       .eq("room_id", roomId);
+      
+    // Optional: filter by time if provided, to ensure we count only fresh hints
+    // However, for counting total submitted, we usually assume the DB is clean.
+    // But if DB cleanup failed, we should filter here too.
+    if (minTimeIso) {
+       // Only count hints created after phase start (minus buffer)
+       const minTime = new Date(new Date(minTimeIso).getTime() - 2000).toISOString();
+       query = query.gte("created_at", minTime);
+    }
 
+    const { data: hints } = await query;
     setSubmittedPlayers(hints?.map(h => h.user_id) || []);
   };
 
@@ -233,7 +256,7 @@ const HintDrop = () => {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "game_hints" },
-        () => fetchSubmittedHints(room.id)
+        () => fetchSubmittedHints(room.id, room.settings?.hintStartedAt)
       )
       .subscribe();
       
