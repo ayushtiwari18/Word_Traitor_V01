@@ -293,6 +293,9 @@ const Lobby = () => {
       return;
     }
 
+    // Set loading immediately to prevent double clicks
+    setIsLoading(true);
+
     try {
       // Call edge function to assign words and roles
       const { data, error: fnError } = await supabase.functions.invoke(
@@ -309,6 +312,7 @@ const Lobby = () => {
       if (fnError) {
         console.error("Error calling start-round:", fnError);
         toast.error("Failed to start game. Please try again.");
+        setIsLoading(false); // Reset loading on error
         return;
       }
 
@@ -324,6 +328,7 @@ const Lobby = () => {
     } catch (err) {
       console.error("Error starting game:", err);
       toast.error("Failed to start game.");
+      setIsLoading(false); // Reset loading on error
     }
   };
 
@@ -378,6 +383,32 @@ const Lobby = () => {
       navigate("/");
     }
   };
+
+  // 🛡️ Loading State Guard (Fix for Issue #2: Blank Screen)
+  // If we are loading, show a full screen skeleton instead of partially rendering
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center">
+         <div className="container max-w-5xl mx-auto px-4 space-y-8 animate-pulse">
+            {/* Header Skeleton */}
+            <div className="flex justify-between items-center h-12">
+               <Skeleton className="h-10 w-24 rounded-lg bg-primary/10" />
+               <Skeleton className="h-10 w-32 rounded-lg bg-primary/10" />
+            </div>
+            
+            {/* Main Grid Skeleton */}
+            <div className="grid lg:grid-cols-2 gap-8">
+               <Skeleton className="h-[400px] w-full rounded-2xl bg-card/50" />
+               <div className="space-y-4">
+                  <Skeleton className="h-16 w-full rounded-xl bg-card/50" />
+                  <Skeleton className="h-16 w-full rounded-xl bg-card/50" />
+                  <Skeleton className="h-16 w-full rounded-xl bg-card/50" />
+               </div>
+            </div>
+         </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background gradient-mesh">
@@ -580,14 +611,7 @@ const Lobby = () => {
             </div>
 
             <div className="flex-1 min-h-[300px] max-h-[50vh] lg:max-h-[60vh] overflow-y-auto space-y-3 bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-4 sm:p-6 custom-scrollbar">
-              {isLoading && players.length === 0 ? (
-                 <>
-                   <Skeleton className="h-16 w-full rounded-xl bg-muted/40" />
-                   <Skeleton className="h-16 w-full rounded-xl bg-muted/40" />
-                   <Skeleton className="h-16 w-full rounded-xl bg-muted/40" />
-                 </>
-              ) : (
-                players.map((p, i) => {
+              {players.map((p, i) => {
                  const isMe = p.user_id === profileId;
                  
                  // ✅ FIX: Use our new deterministic generator
@@ -634,9 +658,9 @@ const Lobby = () => {
                     )}
                   </div>
                  );
-              }))}
+              })}
               
-              {!isLoading && players.length === 0 && (
+              {players.length === 0 && (
                  <div className="text-center py-8 text-muted-foreground opacity-50">
                     Waiting for players...
                  </div>
@@ -652,6 +676,7 @@ const Lobby = () => {
                   size="xl"
                   className="w-full gap-2 py-6 text-lg shadow-lg shadow-cyan-500/20"
                   onClick={handleStartGame}
+                  disabled={isLoading} // Disable while loading
                 >
                   <Play className="w-6 h-6 fill-current" />
                   START GAME
