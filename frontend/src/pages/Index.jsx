@@ -365,16 +365,16 @@ const Index = () => {
         <div className="relative z-10 flex items-center justify-center min-h-screen p-4">
           <div className="w-full max-w-lg">
             {/* Modal Card */}
-            <div className="bg-slate-900/80 backdrop-blur-xl rounded-2xl p-8 border border-cyan-500/20 shadow-2xl shadow-cyan-500/10">
+            <div className="bg-slate-900/80 backdrop-blur-xl rounded-2xl p-6 sm:p-8 border border-cyan-500/20 shadow-2xl shadow-cyan-500/10">
               {/* Header */}
-              <div className="text-center mb-8">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-cyan-500/20 to-teal-500/20 border border-cyan-500/30 mb-4">
-                  <Users className="w-8 h-8 text-cyan-400" />
+              <div className="text-center mb-6 sm:mb-8">
+                <div className="inline-flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-cyan-500/20 to-teal-500/20 border border-cyan-500/30 mb-3 sm:mb-4">
+                  <Users className="w-6 h-6 sm:w-8 sm:h-8 text-cyan-400" />
                 </div>
-                <h2 className="text-3xl font-bold mb-2 text-white">
+                <h2 className="text-2xl sm:text-3xl font-bold mb-2 text-white">
                   Join the Game
                 </h2>
-                <p className="text-slate-400 text-sm">
+                <p className="text-slate-400 text-xs sm:text-sm">
                   Room Code:{" "}
                   <span className="font-mono font-bold text-cyan-400">
                     {autoJoinRoomCode?.toUpperCase()}
@@ -383,10 +383,10 @@ const Index = () => {
               </div>
 
               {/* Name Input */}
-              <div className="space-y-6">
+              <div className="space-y-4 sm:space-y-6">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
-                    <KeyRound className="w-4 h-4 text-cyan-400" />
+                  <label className="text-xs sm:text-sm font-medium text-slate-300 flex items-center gap-2">
+                    <KeyRound className="w-3 h-3 sm:w-4 sm:h-4 text-cyan-400" />
                     Your Display Name
                   </label>
                   <Input
@@ -396,7 +396,7 @@ const Index = () => {
                     onKeyPress={(e) => {
                       if (e.key === "Enter") handleNameModalSubmit();
                     }}
-                    className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 h-12 text-lg"
+                    className="bg-slate-800/50 border-slate-700 text-white placeholder:text-slate-500 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 h-10 sm:h-12 text-base sm:text-lg"
                     maxLength={20}
                     autoFocus
                   />
@@ -409,9 +409,9 @@ const Index = () => {
                 <div className="space-y-3">
                   <Button
                     onClick={handleNameModalSubmit}
-                    className="w-full bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-600 hover:to-teal-600 text-white font-semibold py-6 text-lg shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/40 transition-all border-0"
+                    className="w-full bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-600 hover:to-teal-600 text-white font-semibold py-5 sm:py-6 text-base sm:text-lg shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/40 transition-all border-0"
                   >
-                    <Play className="w-5 h-5 mr-2" />
+                    <Play className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
                     {playerName.trim()
                       ? "Join with this name"
                       : "Join with random name"}
@@ -419,9 +419,9 @@ const Index = () => {
                 </div>
 
                 {/* Info Badge */}
-                <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-800/30 rounded-lg p-3 border border-slate-700/50">
-                  <HelpCircle className="w-4 h-4 flex-shrink-0 text-cyan-400" />
-                  <span>
+                <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-800/30 rounded-lg p-2.5 sm:p-3 border border-slate-700/50">
+                  <HelpCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0 text-cyan-400" />
+                  <span className="text-xs">
                     Skip to get a random name like{" "}
                     <span className="font-mono text-cyan-400">
                       Player{Math.floor(Math.random() * 9000) + 1000}
@@ -438,62 +438,44 @@ const Index = () => {
 
   if (autoJoining) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 text-white flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 text-white flex items-center justify-center p-4">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-cyan-400 mx-auto mb-4"></div>
-          <p className="text-xl text-slate-300">Joining room...</p>
+          <div className="animate-spin rounded-full h-12 w-12 sm:h-16 sm:w-16 border-b-2 border-cyan-400 mx-auto mb-4"></div>
+          <p className="text-lg sm:text-xl text-slate-300">Joining room...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <section className="relative min-h-screen flex flex-col items-center justify-center px-4 gradient-mesh pb-16">
+    <section className="relative min-h-screen flex flex-col items-center justify-center px-4 py-8 gradient-mesh pb-20 sm:pb-16">
       <ParticleBackground />
 
       {/* Top icons */}
       <div
-        className="absolute top-6 right-6 flex items-center gap-3 animate-fade-in-up"
+        className="absolute top-4 sm:top-6 right-4 sm:right-6 flex items-center gap-2 sm:gap-3 animate-fade-in-up z-20"
         style={{ animationDelay: "0.8s" }}
       >
-        {/* <Link to="/settings">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-primary"
-          >
-            <Settings className="w-5 h-5" />
-          </Button>
-        </Link>
-        <Link to="/help">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-primary"
-          >
-            <HelpCircle className="w-5 h-5" />
-          </Button>
-        </Link> */}
         <Link to="/about">
           <Button
             variant="ghost"
             size="icon"
-            className="text-muted-foreground hover:text-primary"
+            className="text-muted-foreground hover:text-primary h-8 w-8 sm:h-10 sm:w-10"
           >
-            <Info className="w-5 h-5" />
+            <Info className="w-4 h-4 sm:w-5 sm:h-5" />
           </Button>
         </Link>
       </div>
 
       {/* Title */}
-      <div className="flex flex-col items-center text-center z-10 max-w-xl">
-        <h1 className="text-6xl sm:text-7xl md:text-8xl font-heading font-extrabold tracking-tight animate-fade-in-up">
+      <div className="flex flex-col items-center text-center z-10 max-w-xl px-4">
+        <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-heading font-extrabold tracking-tight animate-fade-in-up">
           <span className="text-primary text-glow-cyan">Word</span>
           <span className="text-secondary text-glow-purple">Traitor</span>
         </h1>
 
         <p
-          className="text-lg sm:text-xl text-muted-foreground mt-4 mb-10 animate-fade-in-up font-light tracking-wide"
+          className="text-base sm:text-lg md:text-xl text-muted-foreground mt-3 sm:mt-4 mb-8 sm:mb-10 animate-fade-in-up font-light tracking-wide px-4"
           style={{ animationDelay: "0.2s" }}
         >
           One word apart. One traitor among you.
@@ -501,20 +483,21 @@ const Index = () => {
 
         {/* Player name input */}
         <div
-          className="flex flex-col sm:flex-row gap-3 w-full justify-center items-center animate-fade-in-up"
+          className="flex flex-col sm:flex-row gap-3 w-full justify-center items-center animate-fade-in-up px-4"
           style={{ animationDelay: "0.4s" }}
         >
           <Input
             placeholder="Enter your name..."
             value={playerName}
             onChange={(e) => setPlayerName(e.target.value)}
-            className="max-w-xs bg-card/40 border border-border/50 focus:border-primary placeholder:text-muted-foreground/70"
+            className="w-full max-w-xs bg-card/40 border border-border/50 focus:border-primary placeholder:text-muted-foreground/70 h-10 sm:h-11 text-sm sm:text-base"
+            maxLength={20}
           />
         </div>
 
         {/* Room actions */}
         <div
-          className="grid grid-cols-1 sm:grid-cols-2 gap-6 mt-12 animate-fade-in-up w-full max-w-2xl"
+          className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mt-8 sm:mt-12 animate-fade-in-up w-full max-w-2xl px-4"
           style={{ animationDelay: "0.6s" }}
         >
           {/* Create Room */}
@@ -522,16 +505,16 @@ const Index = () => {
             id="create-room-btn"
             onClick={handleCreateRoom}
             className={cn(
-              "group relative p-8 rounded-2xl border-2 bg-card/40 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all duration-300 backdrop-blur-md overflow-hidden"
+              "group relative p-6 sm:p-8 rounded-2xl border-2 bg-card/40 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all duration-300 backdrop-blur-md overflow-hidden min-h-[140px] sm:min-h-[180px]"
             )}
           >
             <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-secondary/20 opacity-0 group-hover:opacity-100 blur-2xl transition-all" />
-            <div className="relative flex flex-col items-center text-center gap-4">
-              <PlusCircle className="w-10 h-10 text-primary group-hover:scale-110 transition-transform" />
-              <h3 className="font-heading text-xl font-semibold text-primary">
+            <div className="relative flex flex-col items-center text-center gap-3 sm:gap-4">
+              <PlusCircle className="w-8 h-8 sm:w-10 sm:h-10 text-primary group-hover:scale-110 transition-transform" />
+              <h3 className="font-heading text-lg sm:text-xl font-semibold text-primary">
                 Create Room
               </h3>
-              <p className="text-sm text-muted-foreground max-w-[200px]">
+              <p className="text-xs sm:text-sm text-muted-foreground max-w-[200px]">
                 Start a new circle and invite friends.
               </p>
             </div>
@@ -542,16 +525,16 @@ const Index = () => {
             id="join-room-btn"
             onClick={() => setJoining(true)}
             className={cn(
-              "group relative p-8 rounded-2xl border-2 bg-card/40 border-secondary/30 hover:border-secondary hover:bg-secondary/10 transition-all duration-300 backdrop-blur-md overflow-hidden"
+              "group relative p-6 sm:p-8 rounded-2xl border-2 bg-card/40 border-secondary/30 hover:border-secondary hover:bg-secondary/10 transition-all duration-300 backdrop-blur-md overflow-hidden min-h-[140px] sm:min-h-[180px]"
             )}
           >
             <div className="absolute inset-0 bg-gradient-to-br from-secondary/20 to-primary/20 opacity-0 group-hover:opacity-100 blur-2xl transition-all" />
-            <div className="relative flex flex-col items-center text-center gap-4">
-              <Users className="w-10 h-10 text-secondary group-hover:scale-110 transition-transform" />
-              <h3 className="font-heading text-xl font-semibold text-secondary">
+            <div className="relative flex flex-col items-center text-center gap-3 sm:gap-4">
+              <Users className="w-8 h-8 sm:w-10 sm:h-10 text-secondary group-hover:scale-110 transition-transform" />
+              <h3 className="font-heading text-lg sm:text-xl font-semibold text-secondary">
                 Join Room
               </h3>
-              <p className="text-sm text-muted-foreground max-w-[200px]">
+              <p className="text-xs sm:text-sm text-muted-foreground max-w-[200px]">
                 Enter a room code to join your friends.
               </p>
             </div>
@@ -560,23 +543,27 @@ const Index = () => {
 
         {/* Join Room Modal */}
         {joining && (
-          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in-up">
-            <div className="p-8 bg-card/70 border border-border/50 rounded-2xl shadow-lg max-w-sm w-full text-center">
-              <h3 className="font-heading text-xl mb-4 flex items-center justify-center gap-2">
-                <KeyRound className="w-5 h-5 text-primary" /> Enter Room Code
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in-up p-4">
+            <div className="p-6 sm:p-8 bg-card/70 border border-border/50 rounded-2xl shadow-lg max-w-sm w-full text-center">
+              <h3 className="font-heading text-lg sm:text-xl mb-4 flex items-center justify-center gap-2">
+                <KeyRound className="w-4 h-4 sm:w-5 sm:h-5 text-primary" /> Enter Room Code
               </h3>
               <Input
                 placeholder="e.g. A1B2C3"
                 value={joinCode}
                 onChange={(e) => setJoinCode(e.target.value)}
-                className="mb-4 text-center uppercase"
+                onKeyPress={(e) => {
+                  if (e.key === "Enter") handleJoinRoom();
+                }}
+                className="mb-4 text-center uppercase h-10 sm:h-11 text-sm sm:text-base"
                 maxLength={6}
+                autoFocus
               />
               <div className="flex gap-3 justify-center">
-                <Button variant="neonCyan" onClick={handleJoinRoom}>
+                <Button variant="neonCyan" onClick={handleJoinRoom} className="text-sm sm:text-base px-4 sm:px-6">
                   Join
                 </Button>
-                <Button variant="ghost" onClick={() => setJoining(false)}>
+                <Button variant="ghost" onClick={() => setJoining(false)} className="text-sm sm:text-base px-4 sm:px-6">
                   Cancel
                 </Button>
               </div>
@@ -587,7 +574,7 @@ const Index = () => {
 
       {/* Global Stats (subtle, not affecting layout) */}
       <div
-        className="absolute bottom-16 left-0 right-0 flex justify-center z-10 animate-fade-in-up"
+        className="absolute bottom-24 sm:bottom-16 left-0 right-0 flex justify-center z-10 animate-fade-in-up px-4"
         style={{ animationDelay: "0.9s" }}
       >
         <div className="opacity-75 hover:opacity-100 transition-opacity">
@@ -597,7 +584,7 @@ const Index = () => {
 
       {/* Footer */}
       <div
-        className="absolute bottom-6 left-0 right-0 flex justify-center gap-6 text-xs text-muted-foreground animate-fade-in-up"
+        className="absolute bottom-4 sm:bottom-6 left-0 right-0 flex flex-wrap justify-center gap-3 sm:gap-6 text-xs text-muted-foreground animate-fade-in-up px-4"
         style={{ animationDelay: "1s" }}
       >
         <Link to="/terms" className="hover:text-primary transition-colors">
@@ -607,8 +594,8 @@ const Index = () => {
         <Link to="/privacy" className="hover:text-primary transition-colors">
           Privacy Policy
         </Link>
-        <span className="text-muted-foreground/30">•</span>
-        <Link to="/about" className="hover:text-primary transition-colors">
+        <span className="text-muted-foreground/30 hidden sm:inline">•</span>
+        <Link to="/about" className="hover:text-primary transition-colors w-full sm:w-auto text-center">
           About
         </Link>
       </div>
