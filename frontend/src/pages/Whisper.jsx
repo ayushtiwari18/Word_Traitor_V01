@@ -1,100 +1,120 @@
-import { useEffect, useState, useRef } from "react";
-import { useParams, useLocation, useNavigate } from "react-router-dom";
-import { Eye, EyeOff, ArrowLeft } from "lucide-react"; // Import Icons
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
+import React, { useEffect, useState } from "react";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
-import { useRoomPresence } from "@/lib/useRoomPresence";
+import { Button } from "@/components/ui/button";
+import { useMusic } from "@/contexts/MusicContext";
 
 const Whisper = () => {
   const { roomCode } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { playerName, isHost, profileId: stateProfileId } = location.state || {};
-  
+  const {
+    playerName: statePlayerName,
+    isHost: stateIsHost,
+    profileId: stateProfileId,
+  } = location.state || {};
+
   const profileId =
     stateProfileId ||
-    (roomCode ? localStorage.getItem(`profile_id_${roomCode?.toUpperCase()}`) : null);
+    (roomCode
+      ? localStorage.getItem(`profile_id_${roomCode.toUpperCase()}`)
+      : null);
 
+  const [role, setRole] = useState(null);
   const [secretWord, setSecretWord] = useState(null);
-  const [role, setRole] = useState(null); // 'civilian' or 'traitor'
+  const [isLoading, setIsLoading] = useState(true);
   const [room, setRoom] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [isRevealed, setIsRevealed] = useState(false);
-  
-  // Audio for reveal effect
-  const revealAudioRef = useRef(new Audio("/sounds/reveal.mp3"));
-
-  // Check if current user is host (fallback)
-  const isHostNow = room?.host_id === profileId;
-
-  // 📡 PRESENCE HOOK
-  useRoomPresence(roomCode, room?.id, profileId, isHostNow);
+  const [roundNumber, setRoundNumber] = useState(1);
+  const { setPhase } = useMusic();
 
   useEffect(() => {
+    setPhase("whisper");
+  }, [setPhase]);
+
+  // Fetch Secret & Role
+  useEffect(() => {
+    let mounted = true;
+
     const fetchGameData = async () => {
       try {
-        setLoading(true);
-
         // 1. Get room details
-        const { data: roomData, error: roomError } = await supabase
+        const { data: roomData, error: roomErr } = await supabase
           .from("game_rooms")
-          .select("id, room_code, host_id, status, current_round")
+          .select("*")
           .eq("room_code", roomCode?.toUpperCase())
           .single();
 
-        if (roomError || !roomData) {
-          console.error("Room fetch error:", roomError);
-          navigate("/");
-          return;
+        if (roomErr || !roomData) throw new Error("Room not found");
+        if (mounted) {
+          setRoom(roomData);
+          setRoundNumber(roomData.current_round || 1);
         }
-        setRoom(roomData);
+
+        // 2. Get SECRET for this user & round
+        // Note: The edge function should have already created these.
+        // We retry a few times if the edge function is slow.
+        let secretData = null;
+        let attempts = 0;
         
-        // If status moved past playing (e.g. to hint_drop), redirect immediately
-        if (roomData.status === "hint_drop") {
-           navigate(`/hint/${roomCode}`, { state: { playerName, isHost, profileId } });
-           return;
+        while (!secretData && attempts < 5) {
+             const { data, error } = await supabase
+              .from("round_secrets")
+              .select("role, secret_word")
+              .eq("room_id", roomData.id)
+              .eq("user_id", profileId)
+              .eq("round_number", roomData.current_round)
+              .maybeSingle();
+              
+             if (data) {
+                 secretData = data;
+                 break;
+             }
+             // Wait 500ms before retry
+             await new Promise(r => setTimeout(r, 500));
+             attempts++;
         }
 
-        const roundNumber = roomData.current_round || 1;
-
-        // 2. Get MY role & secret word for this round
-        const { data: secretData, error: secretError } = await supabase
-          .from("round_secrets")
-          .select("role, secret_word")
-          .eq("room_id", roomData.id)
-          .eq("user_id", profileId)
-          .eq("round_number", roundNumber)
-          .single();
-
-        if (secretError) {
-          console.error("Secret fetch error:", secretError);
-        } else {
+        if (mounted && secretData) {
           setRole(secretData.role);
           setSecretWord(secretData.secret_word);
+        } else if (mounted) {
+             console.error("Failed to load secret after retries");
         }
-      } catch (error) {
-        console.error("Error fetching whisper data:", error);
+      } catch (err) {
+        console.error("Error fetching game data:", err);
       } finally {
-        setLoading(false);
+        if (mounted) setIsLoading(false);
       }
     };
 
-    fetchGameData();
+    if (profileId && roomCode) {
+      fetchGameData();
+    }
+    
+    return () => { mounted = false; };
+  }, [roomCode, profileId]);
 
-    // Subscribe to room updates (to know when to move to hint phase)
+  // Subscribe to room updates (to move to next phase)
+  useEffect(() => {
     const channel = supabase
       .channel(`whisper_${roomCode}`)
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "game_rooms" },
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "game_rooms",
+          filter: `room_code=eq.${roomCode?.toUpperCase()}`,
+        },
         (payload) => {
-          if (payload.new?.room_code === roomCode?.toUpperCase()) {
-             setRoom(payload.new);
-             if (payload.new.status === "hint_drop") {
-                navigate(`/hint/${roomCode}`, { state: { playerName, isHost, profileId } });
-             }
+          if (payload.new.status === "hint_drop") {
+            navigate(`/hint/${roomCode}`, {
+              state: {
+                playerName: statePlayerName,
+                isHost: stateIsHost, // pass initial state, or derive?
+                profileId,
+              },
+            });
           }
         }
       )
@@ -103,126 +123,98 @@ const Whisper = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [roomCode, profileId, navigate, playerName, isHost]);
+  }, [roomCode, navigate, statePlayerName, stateIsHost, profileId]);
 
   const handleContinue = async () => {
-    if (!room || !isHostNow) return;
+    if (!room) return;
+    try {
+      const { error } = await supabase
+        .from("game_rooms")
+        .update({
+          status: "hint_drop",
+          // Reset hint_baseline timestamp so timer starts NOW
+          settings: {
+             ...room.settings,
+             hint_baseline: Math.floor(Date.now() / 1000), 
+          }
+        })
+        .eq("id", room.id);
 
-    // Move game to 'hint_drop' phase
-    const { error } = await supabase
-      .from("game_rooms")
-      .update({ 
-         status: "hint_drop",
-         settings: {
-            ...room.settings,
-            hintStartedAt: new Date().toISOString() // Start timer now
-         }
-      })
-      .eq("id", room.id);
-
-    if (error) {
-      console.error("Error updating room status:", error);
+      if (error) throw error;
+      // Navigation happens via subscription above
+    } catch (err) {
+      console.error("Error updating status:", err);
     }
   };
-  
-  const toggleReveal = () => {
-     if (!isRevealed) {
-        revealAudioRef.current.play().catch(() => {});
-     }
-     setIsRevealed(!isRevealed);
-  };
+
+  const isHostNow = room && room.host_id === profileId;
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center">
+        <div className="animate-pulse text-xl font-heading text-primary">
+          Revealing Secrets...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background gradient-mesh flex flex-col items-center justify-center p-4">
-      {/* Top Bar */}
-      <div className="absolute top-4 left-4">
-         <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
-            <ArrowLeft className="w-5 h-5" />
-         </Button>
-      </div>
-      
-      <div className="max-w-md w-full space-y-8 animate-fade-in-up">
-        <div className="text-center space-y-2">
-          <h1 className="text-3xl sm:text-4xl font-heading font-extrabold tracking-tight">
-            Your Secret Role
-          </h1>
-          <p className="text-muted-foreground">
-            Tap the card to reveal your identity.
-          </p>
+      <div className="w-full max-w-md bg-card/40 backdrop-blur-md border border-border/40 rounded-3xl p-8 shadow-2xl text-center space-y-8 animate-fade-in-up">
+        
+        <div className="space-y-2">
+           <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground">
+             Round {roundNumber}
+           </h2>
+           <h1 className="text-3xl sm:text-4xl font-heading font-bold text-foreground">
+             Your Secret Role
+           </h1>
         </div>
 
-        <div className="perspective-1000">
-          <Card 
-            onClick={toggleReveal}
-            className={`
-               relative w-full aspect-[3/4] sm:aspect-square max-h-[400px] mx-auto cursor-pointer 
-               transition-all duration-700 transform-style-3d 
-               ${isRevealed ? "rotate-y-180" : ""}
-            `}
-          >
-            {/* FRONT (Hidden) */}
-            <div className="absolute inset-0 backface-hidden flex flex-col items-center justify-center bg-card/80 border-2 border-primary/20 rounded-xl shadow-2xl p-6">
-               <Eye className="w-16 h-16 text-primary mb-4 animate-pulse" />
-               <h3 className="text-2xl font-bold text-primary">TAP TO REVEAL</h3>
-               <p className="text-sm text-muted-foreground mt-2">Shhh! Don't let others see.</p>
-            </div>
+        <div className="py-8 space-y-6">
+          <div className="relative group cursor-default">
+             <div className="absolute -inset-1 bg-gradient-to-r from-primary to-secondary rounded-2xl blur opacity-25 group-hover:opacity-50 transition duration-1000"></div>
+             <div className="relative bg-background/80 backdrop-blur-xl border border-primary/20 rounded-xl p-6">
+                <span className="block text-xs uppercase tracking-wider text-muted-foreground mb-2">
+                  You are a
+                </span>
+                <span className={`text-4xl font-black tracking-tight ${role === 'traitor' ? 'text-red-500 drop-shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'text-blue-400 drop-shadow-[0_0_10px_rgba(96,165,250,0.5)]'}`}>
+                  {role === "traitor" ? "TRAITOR" : "CIVILIAN"}
+                </span>
+             </div>
+          </div>
 
-            {/* BACK (Revealed) */}
-            <div className="absolute inset-0 backface-hidden rotate-y-180 flex flex-col items-center justify-center bg-background border-2 border-primary rounded-xl shadow-2xl p-6">
-               {loading ? (
-                  <div className="space-y-4 w-full flex flex-col items-center">
-                     <Skeleton className="h-4 w-24" />
-                     <Skeleton className="h-12 w-48" />
-                     <Skeleton className="h-4 w-32" />
-                  </div>
-               ) : (
-                  <>
-                     <div className="mb-6">
-                        {role === "traitor" ? (
-                           <span className="text-4xl">🔪</span>
-                        ) : (
-                           <span className="text-4xl">🕵️</span>
-                        )}
-                     </div>
-                     
-                     <h2 className="text-xl font-medium text-muted-foreground mb-1 uppercase tracking-widest">
-                        You are a
-                     </h2>
-                     <h1 className={`text-4xl sm:text-5xl font-heading font-black mb-8 ${role === 'traitor' ? 'text-red-500' : 'text-blue-500'}`}>
-                        {role?.toUpperCase()}
-                     </h1>
-
-                     <div className="bg-muted/30 p-4 rounded-xl w-full text-center border border-border/50">
-                        <p className="text-sm text-muted-foreground mb-1">Your Secret Word</p>
-                        <p className="text-2xl font-bold text-primary">{secretWord}</p>
-                     </div>
-                     
-                     <div className="mt-8 flex items-center gap-2 text-xs text-muted-foreground/60">
-                        <EyeOff className="w-3 h-3" />
-                        Tap again to hide
-                     </div>
-                  </>
-               )}
-            </div>
-          </Card>
+          <div className="relative group cursor-default">
+             <div className="absolute -inset-1 bg-gradient-to-r from-secondary to-primary rounded-2xl blur opacity-25 group-hover:opacity-50 transition duration-1000"></div>
+             <div className="relative bg-background/80 backdrop-blur-xl border border-secondary/20 rounded-xl p-6">
+                <span className="block text-xs uppercase tracking-wider text-muted-foreground mb-2">
+                  Your Secret Word
+                </span>
+                <span className="text-3xl font-bold text-foreground">
+                  {secretWord || "???"}
+                </span>
+             </div>
+          </div>
         </div>
 
-        {/* Host Controls */}
-        <div className="text-center pt-4">
-           {isHostNow ? (
-              <Button 
-                variant="neonCyan" 
-                size="lg" 
-                className="w-full sm:w-auto px-8 py-6 text-lg"
-                onClick={handleContinue}
-              >
-                 Start Round 1
-              </Button>
-           ) : (
-              <p className="text-sm text-muted-foreground animate-pulse">
-                 Waiting for host to start the round...
-              </p>
-           )}
+        <div className="pt-4">
+          {isHostNow ? (
+            <Button
+              variant="neonCyan"
+              size="lg"
+              className="w-full text-lg h-14 font-bold shadow-lg shadow-cyan-500/20 animate-pulse"
+              onClick={handleContinue}
+            >
+              Start Timer (Begin Hints)
+            </Button>
+          ) : (
+            <div className="bg-primary/5 border border-primary/10 rounded-xl p-4">
+               <p className="text-primary/80 animate-pulse font-medium">
+                 Waiting for host to start the timer...
+               </p>
+            </div>
+          )}
         </div>
       </div>
     </div>
