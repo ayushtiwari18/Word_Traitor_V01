@@ -1,498 +1,231 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
-import { Eye, EyeOff, ArrowLeft } from "lucide-react";
+import { Eye, EyeOff, ArrowLeft } from "lucide-react"; // Import Icons
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from "@/lib/supabaseClient";
-import TraitorLeftModal from "@/components/TraitorLeftModal";
-import { leaveGameRoom } from "@/lib/gameUtils";
 import { useRoomPresence } from "@/lib/useRoomPresence";
 
 const Whisper = () => {
-  const REVEAL_DURATION_SECONDS = 10;
-
   const { roomCode } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const {
-    playerName,
-    isHost,
-    profileId: stateProfileId,
-  } = location.state || {};
-
+  const { playerName, isHost, profileId: stateProfileId } = location.state || {};
+  
   const profileId =
     stateProfileId ||
-    (roomCode
-      ? localStorage.getItem(`profile_id_${roomCode?.toUpperCase()}`)
-      : null);
+    (roomCode ? localStorage.getItem(`profile_id_${roomCode?.toUpperCase()}`) : null);
 
-  const [revealed, setRevealed] = useState(false);
   const [secretWord, setSecretWord] = useState(null);
-  const [wordDescription, setWordDescription] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState(null); // 'civilian' or 'traitor'
   const [room, setRoom] = useState(null);
-  const [countdown, setCountdown] = useState(REVEAL_DURATION_SECONDS);
-  const hasNavigated = useRef(false);
-  const [showTraitorLeftModal, setShowTraitorLeftModal] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [isRevealed, setIsRevealed] = useState(false);
+  
+  // Audio for reveal effect
+  const revealAudioRef = useRef(new Audio("/sounds/reveal.mp3"));
 
-  const [serverOffsetMs, setServerOffsetMs] = useState(0);
-  const serverOffsetRef = useRef(0);
-
-  const isHostNow = !!(room?.host_id && profileId && room.host_id === profileId);
+  // Check if current user is host (fallback)
+  const isHostNow = room?.host_id === profileId;
 
   // 📡 PRESENCE HOOK
   useRoomPresence(roomCode, room?.id, profileId, isHostNow);
 
   useEffect(() => {
-    serverOffsetRef.current = serverOffsetMs;
-  }, [serverOffsetMs]);
-
-  const syncServerTime = async () => {
-    try {
-      const { data, error } = await supabase.functions.invoke("server-time", {
-        body: {},
-      });
-
-      if (error) {
-        console.warn("server-time error:", error);
-        return;
-      }
-
-      const serverIso = data?.serverTime;
-      const serverMs = new Date(serverIso).getTime();
-      if (!serverIso || Number.isNaN(serverMs)) return;
-
-      setServerOffsetMs(serverMs - Date.now());
-    } catch (e) {
-      console.warn("server-time invoke failed:", e);
-    }
-  };
-
-  const getServerNowIso = async () => {
-    try {
-      const { data, error } = await supabase.functions.invoke("server-time", {
-        body: {},
-      });
-      if (error) throw error;
-      if (data?.serverTime) return data.serverTime;
-    } catch {
-      // fall back
-    }
-    return new Date().toISOString();
-  };
-
-  const computeTimeLeft = (startedAtIso, durationSeconds) => {
-    if (!startedAtIso) return durationSeconds;
-    const startedAtMs = new Date(startedAtIso).getTime();
-    if (Number.isNaN(startedAtMs)) return durationSeconds;
-    const nowMs = Date.now() + (serverOffsetRef.current || 0);
-    const elapsedSeconds = Math.floor((nowMs - startedAtMs) / 1000);
-    return Math.max(0, durationSeconds - elapsedSeconds);
-  };
-
-  useEffect(() => {
-    syncServerTime();
-    const interval = setInterval(() => syncServerTime(), 30000);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    const fetchData = async () => {
+    const fetchGameData = async () => {
       try {
-        if (!profileId) {
-          console.error("No profileId found");
-          navigate("/");
-          return;
-        }
+        setLoading(true);
 
-        const { data: roomData, error: roomErr } = await supabase
+        // 1. Get room details
+        const { data: roomData, error: roomError } = await supabase
           .from("game_rooms")
-          .select(
-            "id, room_code, host_id, status, current_round, created_at, settings"
-          )
+          .select("id, room_code, host_id, status, current_round")
           .eq("room_code", roomCode?.toUpperCase())
           .single();
 
-        if (roomErr || !roomData) {
-          console.error("Room not found", roomErr);
+        if (roomError || !roomData) {
+          console.error("Room fetch error:", roomError);
           navigate("/");
           return;
         }
         setRoom(roomData);
-
-        const isHostFromRoom = !!(roomData.host_id && profileId && roomData.host_id === profileId);
-
-        // Ensure reveal phase start is persisted once (host only)
-        if (!roomData?.settings?.wordRevealStartedAt && isHostFromRoom) {
-          const startedAt = await getServerNowIso();
-          const nextSettings = {
-            ...(roomData.settings || {}),
-            wordRevealStartedAt: startedAt,
-          };
-
-          await supabase
-            .from("game_rooms")
-            .update({ settings: nextSettings })
-            .eq("id", roomData.id);
-
-          setRoom((prev) => ({ ...(prev || roomData), settings: nextSettings }));
+        
+        // If status moved past playing (e.g. to hint_drop), redirect immediately
+        if (roomData.status === "hint_drop") {
+           navigate(`/hint/${roomCode}`, { state: { playerName, isHost, profileId } });
+           return;
         }
 
-        setCountdown(
-          computeTimeLeft(
-            roomData?.settings?.wordRevealStartedAt,
-            REVEAL_DURATION_SECONDS
-          )
-        );
+        const roundNumber = roomData.current_round || 1;
 
-        if (roomData.status === "hint_drop" && !hasNavigated.current) {
-          hasNavigated.current = true;
-          navigate(`/hint/${roomCode}`, {
-            state: { playerName, isHost: isHostFromRoom, profileId },
-          });
-          return;
-        }
-
-        const { data: secretData, error: secretErr } = await supabase
+        // 2. Get MY role & secret word for this round
+        const { data: secretData, error: secretError } = await supabase
           .from("round_secrets")
-          .select("secret_word")
+          .select("role, secret_word")
           .eq("room_id", roomData.id)
           .eq("user_id", profileId)
-          .eq("round_number", roomData.current_round || 1)
+          .eq("round_number", roundNumber)
           .single();
 
-        if (secretErr) {
-          console.log("No secret assigned yet, waiting...", secretErr);
+        if (secretError) {
+          console.error("Secret fetch error:", secretError);
         } else {
-          setSecretWord(secretData);
-          setWordDescription(null);
+          setRole(secretData.role);
+          setSecretWord(secretData.secret_word);
         }
-
-        setLoading(false);
       } catch (error) {
-        console.error("Error:", error);
+        console.error("Error fetching whisper data:", error);
+      } finally {
         setLoading(false);
       }
     };
 
-    fetchData();
+    fetchGameData();
 
-    const secretsChannel = supabase
-      .channel(`secrets_${roomCode}`)
+    // Subscribe to room updates (to know when to move to hint phase)
+    const channel = supabase
+      .channel(`whisper_${roomCode}`)
       .on(
         "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "round_secrets",
-        },
-        () => fetchData()
-      )
-      .subscribe();
-
-    const roomChannel = supabase
-      .channel(`game_phase_${roomCode}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "game_rooms",
-        },
+        { event: "UPDATE", schema: "public", table: "game_rooms" },
         (payload) => {
-          console.log("🎮 Room status changed:", payload.new?.status);
-          if (payload.new?.room_code !== roomCode?.toUpperCase()) return;
-
-          setRoom(payload.new);
-
-          if (payload.new?.status === "hint_drop" && !hasNavigated.current) {
-            hasNavigated.current = true;
-            const isHostFromPayload = !!(
-              payload.new?.host_id &&
-              profileId &&
-              payload.new.host_id === profileId
-            );
-            navigate(`/hint/${roomCode}`, {
-              state: { playerName, isHost: isHostFromPayload, profileId },
-            });
+          if (payload.new?.room_code === roomCode?.toUpperCase()) {
+             setRoom(payload.new);
+             if (payload.new.status === "hint_drop") {
+                navigate(`/hint/${roomCode}`, { state: { playerName, isHost, profileId } });
+             }
           }
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(secretsChannel);
-      supabase.removeChannel(roomChannel);
+      supabase.removeChannel(channel);
     };
-  }, [roomCode, navigate, playerName, isHost, profileId]);
+  }, [roomCode, profileId, navigate, playerName, isHost]);
 
-  // Keep countdown synced to persisted start time
-  useEffect(() => {
-    if (!room?.settings?.wordRevealStartedAt) return;
-
-    const tick = () => {
-      setCountdown(
-        computeTimeLeft(
-          room.settings.wordRevealStartedAt,
-          REVEAL_DURATION_SECONDS
-        )
-      );
-    };
-
-    tick();
-    const interval = setInterval(tick, 1000);
-    return () => clearInterval(interval);
-  }, [room?.settings?.wordRevealStartedAt]);
-
-  // If host changes mid-reveal, ensure the reveal start time gets persisted.
-  // Without this, a new host can be elected but never sets `wordRevealStartedAt`,
-  // leaving everyone stuck on the reveal screen.
-  useEffect(() => {
+  const handleContinue = async () => {
     if (!room || !isHostNow) return;
-    if (room?.settings?.wordRevealStartedAt) return;
 
-    const persistRevealStart = async () => {
-      try {
-        const startedAt = await getServerNowIso();
-        const nextSettings = {
-          ...(room.settings || {}),
-          wordRevealStartedAt: startedAt,
-        };
+    // Move game to 'hint_drop' phase
+    const { error } = await supabase
+      .from("game_rooms")
+      .update({ 
+         status: "hint_drop",
+         settings: {
+            ...room.settings,
+            hintStartedAt: new Date().toISOString() // Start timer now
+         }
+      })
+      .eq("id", room.id);
 
-        const { error } = await supabase
-          .from("game_rooms")
-          .update({ settings: nextSettings })
-          .eq("id", room.id);
-
-        if (error) {
-          console.error("Error persisting wordRevealStartedAt:", error);
-          return;
-        }
-
-        setRoom((prev) => ({ ...(prev || room), settings: nextSettings }));
-        setCountdown(computeTimeLeft(startedAt, REVEAL_DURATION_SECONDS));
-      } catch (e) {
-        console.error("Error persisting reveal start:", e);
-      }
-    };
-
-    persistRevealStart();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [room?.id, isHostNow, room?.settings?.wordRevealStartedAt]);
-
-  // Host advances everyone to hint phase when timer ends (synced)
-  useEffect(() => {
-    if (!room || !isHostNow || hasNavigated.current) return;
-    if (countdown > 0) return;
-
-    const moveToHintPhase = async () => {
-      try {
-        console.log("⏰ Reveal timer ended, moving to hint phase...");
-        const hintStartedAt = await getServerNowIso();
-        const { error } = await supabase
-          .from("game_rooms")
-          .update({
-            status: "hint_drop",
-            settings: {
-              ...(room.settings || {}),
-              hintStartedAt,
-            },
-          })
-          .eq("id", room.id);
-
-        if (error) {
-          console.error("Error moving to hint phase:", error);
-          return;
-        }
-
-        hasNavigated.current = true;
-        navigate(`/hint/${roomCode}`, {
-          state: { playerName, isHost: true, profileId },
-        });
-      } catch (e) {
-        console.error("Error moving to hint phase:", e);
-      }
-    };
-
-    moveToHintPhase();
-  }, [countdown, isHostNow, room, roomCode, navigate, playerName, profileId]);
-
-  const handleLeaveGame = async () => {
-    if (!profileId || !room) {
-      navigate("/");
-      return;
-    }
-
-    try {
-      // Check if this player is the traitor
-      const { data: participantData } = await supabase
-        .from("room_participants")
-        .select("role")
-        .eq("room_id", room.id)
-        .eq("user_id", profileId)
-        .single();
-
-      const isTraitor = participantData?.role === "traitor";
-
-      // If traitor left, notify others
-      if (isTraitor) {
-        await supabase
-          .from("game_rooms")
-          .update({
-            status: "traitor_left",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", room.id);
-      }
-
-      // 🛡️ USE ROBUST LEAVE LOGIC
-      // (Pass isHostNow which is computed from current room state)
-      await leaveGameRoom(room.id, profileId, isHostNow);
-
-      localStorage.removeItem(`profile_id_${roomCode?.toUpperCase()}`);
-      navigate("/");
-    } catch (err) {
-      console.error("Error leaving game:", err);
-      navigate("/");
+    if (error) {
+      console.error("Error updating room status:", error);
     }
   };
-
-  // Add realtime subscription to detect traitor leaving
-  useEffect(() => {
-    if (!room) return;
-
-    const traitorLeftChannel = supabase
-      .channel(`traitor_status_${roomCode}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "game_rooms",
-        },
-        (payload) => {
-          if (payload.new?.status === "traitor_left") {
-            setShowTraitorLeftModal(true);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(traitorLeftChannel);
-    };
-  }, [room, roomCode]);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading your secret word...</p>
-        </div>
-      </div>
-    );
-  }
+  
+  const toggleReveal = () => {
+     if (!isRevealed) {
+        revealAudioRef.current.play().catch(() => {});
+     }
+     setIsRevealed(!isRevealed);
+  };
 
   return (
-    <>
-      <div className="min-h-screen bg-background gradient-mesh flex items-center justify-center">
-        {/* Exit Button - Top Left */}
-        <div className="absolute top-4 left-4 z-10">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-2"
-            onClick={handleLeaveGame}
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Exit
-          </Button>
+    <div className="min-h-screen bg-background gradient-mesh flex flex-col items-center justify-center p-4">
+      {/* Top Bar */}
+      <div className="absolute top-4 left-4">
+         <Button variant="ghost" size="icon" onClick={() => navigate("/")}>
+            <ArrowLeft className="w-5 h-5" />
+         </Button>
+      </div>
+      
+      <div className="max-w-md w-full space-y-8 animate-fade-in-up">
+        <div className="text-center space-y-2">
+          <h1 className="text-3xl sm:text-4xl font-heading font-extrabold tracking-tight">
+            Your Secret Role
+          </h1>
+          <p className="text-muted-foreground">
+            Tap the card to reveal your identity.
+          </p>
         </div>
 
-        <div className="container max-w-lg mx-auto px-4">
-          <div className="bg-card/40 backdrop-blur-md border border-border/40 rounded-2xl p-8 shadow-xl animate-fade-in-up text-center">
-            <h1 className="text-2xl font-heading font-bold mb-2">
-              Your Secret Word
-            </h1>
-            <p className="text-muted-foreground mb-8">
-              Memorize your word. Don't reveal it to others!
-            </p>
-
-            {/* Word Reveal Card */}
-            <div className="relative mb-8">
-              <div
-                className={`
-                p-8 rounded-xl border-2 transition-all duration-500
-                ${
-                  revealed
-                    ? "bg-gradient-to-br from-primary/20 to-secondary/20 border-primary/50"
-                    : "bg-muted/50 border-border/50"
-                }
-              `}
-              >
-                {revealed ? (
-                  <div className="animate-fade-in-up">
-                    <span className="text-4xl font-heading font-bold text-primary">
-                      {secretWord?.secret_word || "No word assigned"}
-                    </span>
-                    {wordDescription && (
-                      <p className="mt-4 text-base text-muted-foreground italic">
-                        "{wordDescription}"
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                    <EyeOff className="w-6 h-6" />
-                    <span className="text-lg">Tap to reveal</span>
-                  </div>
-                )}
-              </div>
-
-              {!revealed && (
-                <Button
-                  variant="neonCyan"
-                  size="lg"
-                  className="mt-4 gap-2"
-                  onClick={() => setRevealed(true)}
-                >
-                  <Eye className="w-5 h-5" />
-                  Reveal Word
-                </Button>
-              )}
+        <div className="perspective-1000">
+          <Card 
+            onClick={toggleReveal}
+            className={`
+               relative w-full aspect-[3/4] sm:aspect-square max-h-[400px] mx-auto cursor-pointer 
+               transition-all duration-700 transform-style-3d 
+               ${isRevealed ? "rotate-y-180" : ""}
+            `}
+          >
+            {/* FRONT (Hidden) */}
+            <div className="absolute inset-0 backface-hidden flex flex-col items-center justify-center bg-card/80 border-2 border-primary/20 rounded-xl shadow-2xl p-6">
+               <Eye className="w-16 h-16 text-primary mb-4 animate-pulse" />
+               <h3 className="text-2xl font-bold text-primary">TAP TO REVEAL</h3>
+               <p className="text-sm text-muted-foreground mt-2">Shhh! Don't let others see.</p>
             </div>
 
-            {revealed && (
-              <div className="space-y-4 animate-fade-in-up">
-                <p className="text-sm text-muted-foreground">
-                  Remember your word! The hint phase begins soon.
-                </p>
+            {/* BACK (Revealed) */}
+            <div className="absolute inset-0 backface-hidden rotate-y-180 flex flex-col items-center justify-center bg-background border-2 border-primary rounded-xl shadow-2xl p-6">
+               {loading ? (
+                  <div className="space-y-4 w-full flex flex-col items-center">
+                     <Skeleton className="h-4 w-24" />
+                     <Skeleton className="h-12 w-48" />
+                     <Skeleton className="h-4 w-32" />
+                  </div>
+               ) : (
+                  <>
+                     <div className="mb-6">
+                        {role === "traitor" ? (
+                           <span className="text-4xl">🔪</span>
+                        ) : (
+                           <span className="text-4xl">🕵️</span>
+                        )}
+                     </div>
+                     
+                     <h2 className="text-xl font-medium text-muted-foreground mb-1 uppercase tracking-widest">
+                        You are a
+                     </h2>
+                     <h1 className={`text-4xl sm:text-5xl font-heading font-black mb-8 ${role === 'traitor' ? 'text-red-500' : 'text-blue-500'}`}>
+                        {role?.toUpperCase()}
+                     </h1>
 
-                {countdown > 0 ? (
-                  <div className="text-lg font-mono text-primary">
-                    Moving to hint phase in {countdown}s...
-                  </div>
-                ) : (
-                  <div className="text-lg font-mono text-primary animate-pulse">
-                    Starting hint phase...
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+                     <div className="bg-muted/30 p-4 rounded-xl w-full text-center border border-border/50">
+                        <p className="text-sm text-muted-foreground mb-1">Your Secret Word</p>
+                        <p className="text-2xl font-bold text-primary">{secretWord}</p>
+                     </div>
+                     
+                     <div className="mt-8 flex items-center gap-2 text-xs text-muted-foreground/60">
+                        <EyeOff className="w-3 h-3" />
+                        Tap again to hide
+                     </div>
+                  </>
+               )}
+            </div>
+          </Card>
+        </div>
+
+        {/* Host Controls */}
+        <div className="text-center pt-4">
+           {isHostNow ? (
+              <Button 
+                variant="neonCyan" 
+                size="lg" 
+                className="w-full sm:w-auto px-8 py-6 text-lg"
+                onClick={handleContinue}
+              >
+                 Start Round 1
+              </Button>
+           ) : (
+              <p className="text-sm text-muted-foreground animate-pulse">
+                 Waiting for host to start the round...
+              </p>
+           )}
         </div>
       </div>
-      {/* Traitor Left Modal */}
-      {showTraitorLeftModal && (
-        <TraitorLeftModal
-          roomCode={roomCode}
-          playerName={playerName}
-          isHost={isHost}
-          profileId={profileId}
-        />
-      )}
-    </>
+    </div>
   );
 };
 
