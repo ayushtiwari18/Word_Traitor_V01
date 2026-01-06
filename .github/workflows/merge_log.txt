@@ -1,0 +1,2 @@
+// This is a placeholder action to signify the completion of the merge.
+// In a real scenario, I would delete the branch here if a tool existed.
