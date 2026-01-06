@@ -17,6 +17,7 @@ import { driver } from "driver.js";
 import "driver.js/dist/driver.css";
 import { useMusic } from "@/contexts/MusicContext";
 import GlobalStats from "@/components/GlobalStats";
+import { generateComicIndianName } from "@/lib/indianNameUtils"; // Import the comic name generator
 
 // Generate a random 6-letter room code
 const generateRoomCode = () => {
@@ -25,12 +26,6 @@ const generateRoomCode = () => {
     { length: 6 },
     () => chars[Math.floor(Math.random() * chars.length)]
   ).join("");
-};
-
-// Generate random player name
-const generateRandomPlayerName = () => {
-  const randomNumber = Math.floor(Math.random() * 9000) + 1000; // 1000-9999
-  return `Player${randomNumber}`;
 };
 
 const ParticleBackground = () => (
@@ -163,7 +158,7 @@ const Index = () => {
       const playerNameToUse =
         customName && customName.trim()
           ? customName.trim()
-          : generateRandomPlayerName();
+          : generateComicIndianName(); // Use comic name
 
       // Create profile
       const { data: profile, error: profileErr } = await supabase
@@ -221,7 +216,7 @@ const Index = () => {
   const handleNameModalSubmit = () => {
     if (!playerName.trim()) {
       // Use random name if empty
-      autoJoinRoom(autoJoinRoomCode, generateRandomPlayerName());
+      autoJoinRoom(autoJoinRoomCode, generateComicIndianName());
     } else {
       autoJoinRoom(autoJoinRoomCode, playerName);
     }
@@ -229,7 +224,7 @@ const Index = () => {
   };
 
   const handleSkipName = () => {
-    autoJoinRoom(autoJoinRoomCode, generateRandomPlayerName());
+    autoJoinRoom(autoJoinRoomCode, generateComicIndianName());
     setShowNameModal(false);
   };
 
@@ -422,10 +417,7 @@ const Index = () => {
                 <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-800/30 rounded-lg p-2.5 sm:p-3 border border-slate-700/50">
                   <HelpCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0 text-cyan-400" />
                   <span className="text-xs">
-                    Skip to get a random name like{" "}
-                    <span className="font-mono text-cyan-400">
-                      Player{Math.floor(Math.random() * 9000) + 1000}
-                    </span>
+                    Skip to get a random name
                   </span>
                 </div>
               </div>
