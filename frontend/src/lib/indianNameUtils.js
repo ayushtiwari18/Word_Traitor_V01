@@ -1,25 +1,95 @@
 import { uniqueNamesGenerator } from 'unique-names-generator';
 
 const comicAdjectives = [
-  "Chalu", "Bekaar", "Nautanki", "Jugaadu", "Fekuchand", 
-  "Kanjoos", "Padhaku", "Bhukkad", "Sust", "Tez", 
+  "Chalu", "Bekaar", "Nautanki", "Jugaadu", "Fekuchand",
+  "Kanjoos", "Padhaku", "Bhukkad", "Sust", "Tez",
   "Natkhat", "Shararati", "Masoom", "Gussail", "Rotlu",
-  "ChupaRustam", "Vella", "Mastikhor", "Dhakkan", "Chapri"
+  "ChupaRustam", "Vella", "Mastikhor", "Dhakkan", "Chapri",
+
+  // NEW – Desi meme vibes
+  "OverSmart", "FullOn", "Tapori", "Bindass", "Confused",
+  "SadakChaap", "UltraPro", "TotalFilmy", "HalfEngineer",
+  "Lallu", "HeroNo1", "Mental", "FundaLess", "DesiBoy",
+  "DesiGirl", "Legendary", "Aalsi", "MadAngle", "KyaScene"
 ];
+
 
 const indianNames = [
-  "Pappu", "Raju", "BabuBhaiya", "Kachra", "Circuit", 
+  "Pappu", "Raju", "BabuBhaiya", "Kachra", "Circuit",
   "Vasooli", "Gungun", "Chinku", "Pinku", "Titu",
   "Goli", "Chacha", "Mausi", "Bhabi", "Dost",
-  "Padosi", "Majnu", "Uday", "CrimeMaster", "Chatur"
+  "Padosi", "Majnu", "Uday", "CrimeMaster", "Chatur",
+
+  // NEW – Bollywood & meme legends
+  "Baburao", "Shyam", "RajuBhai",
+  "Munna", "BhaiMBBS",
+  "Khiladi", "Prem",
+  "Singham",
+  "Kalmuhi", "Teja",
+  "Jethalal", "TarakMehta", "Popatlal", "Bhide",
+  "Champak", "Bagha",
+  "GopiBahuu",
+  "Amitabh",
+  "Shaktimaan",
+  "Gabbar",
+  "Mogambo",
+  "BhoolBhulaiya",
+  "PK",
+  "VickyDonor",
+  "PinkiMeme",
+  "DollyChaiwala"
 ];
 
+
 const suffixes = [
-  "KaLadka", "KiLadki", "KaBhai", "KiBehen", "Don", 
-  "IsBack", "Op", "Pro", "Noob", "420", 
-  "007", "King", "Queen", "Bhai", "Didi", 
-  "Uncle", "Aunty", "Ji", "Sir", "Madam"
+  // Original
+  "KaLadka", "KiLadki", "KaBhai", "KiBehen",
+  "Don", "IsBack", "Op", "Pro", "Noob",
+  "420", "007", "King", "Queen",
+  "Bhai", "Didi", "Uncle", "Aunty",
+  "Ji", "Sir", "Madam",
+
+  // NEW – Desi meme & internet vibes
+  "Official",
+  "RealIdSeAao",
+  "Gaming",
+  "YT",
+  "Insta",
+  "Vlogs",
+  "Army",
+  "Fan",
+  "Stan",
+  "Lover",
+  "Legend",
+  "UltraPro",
+  "NoFilter",
+  "FullPower",
+  "OnFire",
+  "OPAF",
+  "Max",
+  "Prime",
+
+  // Bollywood & desi flavour
+  "Returns",
+  "TheBoss",
+  "TheReal",
+  "Khiladi",
+  "Baazigar",
+  "HeroNo1",
+  "Dangerous",
+
+  // Funny everyday Indian suffixes
+  "Wala",
+  "Seeker",
+  "Hunter",
+  "Master",
+  "Expert",
+  "No1",
+  "Forever",
+  "Only",
+  "Zindabad"
 ];
+
 
 export const generateComicIndianName = () => {
   // 50% chance of 2 words (Adjective + Name)
