@@ -37,7 +37,7 @@ const About = () => {
       <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
         
         {/* Header */}
-        <div className="space-y-6 text-center">
+        <header className="space-y-6 text-center">
           <Link to="/">
             <Button variant="ghost" className="absolute top-6 left-6 text-slate-400 hover:text-white">
               <ArrowLeft className="mr-2 h-4 w-4" /> Back to Home
@@ -50,10 +50,10 @@ const About = () => {
           <p className="text-xl text-slate-400 max-w-2xl mx-auto">
             A social deduction game designed to test your trust, deception, and word association skills.
           </p>
-        </div>
+        </header>
 
         {/* Mission Section */}
-        <div className="grid md:grid-cols-2 gap-6">
+        <section className="grid md:grid-cols-2 gap-6">
           <Card className="bg-slate-900/50 border-slate-800 backdrop-blur-sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-cyan-400">
@@ -81,21 +81,21 @@ const About = () => {
               </ul>
             </CardContent>
           </Card>
-        </div>
+        </section>
 
         {/* Developers Section */}
-        <div className="space-y-8">
-          <div className="flex items-center justify-center gap-2 text-2xl font-semibold text-slate-200">
+        <section className="space-y-8">
+          <h2 className="flex items-center justify-center gap-2 text-2xl font-semibold text-slate-200">
             <Users className="h-6 w-6 text-cyan-400" />
-            <h2>Meet the Developers</h2>
-          </div>
+            Meet the Developers
+          </h2>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {developers.map((dev, index) => (
               <Card key={index} className="bg-slate-900/50 border-slate-800 hover:border-cyan-500/50 transition-all duration-300 group">
                 <CardHeader className="text-center">
                   <Avatar className="h-20 w-20 mx-auto mb-4 border-2 border-slate-700 group-hover:border-cyan-400 transition-colors">
-                    <AvatarImage src={dev.image} />
+                    <AvatarImage src={dev.image} alt={`${dev.name}, ${dev.role} of Word Traitor`} />
                     <AvatarFallback className="bg-slate-800 text-cyan-400 text-xl font-bold">
                       {dev.initials}
                     </AvatarFallback>
@@ -104,12 +104,12 @@ const About = () => {
                   <CardDescription className="text-cyan-400/80">{dev.role}</CardDescription>
                 </CardHeader>
                 <CardContent className="flex justify-center gap-4">
-                  <a href={dev.github} target="_blank" rel="noopener noreferrer">
+                  <a href={dev.github} target="_blank" rel="noopener noreferrer" aria-label={`${dev.name}'s GitHub profile`}>
                     <Button size="icon" variant="ghost" className="hover:text-white hover:bg-slate-800">
                       <Github className="h-5 w-5" />
                     </Button>
                   </a>
-                  <a href={dev.linkedin} target="_blank" rel="noopener noreferrer">
+                  <a href={dev.linkedin} target="_blank" rel="noopener noreferrer" aria-label={`${dev.name}'s LinkedIn profile`}>
                     <Button size="icon" variant="ghost" className="hover:text-cyan-400 hover:bg-slate-800">
                       <Linkedin className="h-5 w-5" />
                     </Button>
@@ -118,12 +118,12 @@ const About = () => {
               </Card>
             ))}
           </div>
-        </div>
+        </section>
 
         {/* Footer */}
-        <div className="text-center text-slate-600 text-sm pt-12 border-t border-slate-800/50">
+        <footer className="text-center text-slate-600 text-sm pt-12 border-t border-slate-800/50">
           <p>© {new Date().getFullYear()} Word Traitor. Open Source Project.</p>
-        </div>
+        </footer>
 
       </div>
     </div>
