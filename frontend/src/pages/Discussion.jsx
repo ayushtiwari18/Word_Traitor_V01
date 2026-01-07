@@ -922,7 +922,7 @@ const Discussion = () => {
                   <div className="text-xs text-muted-foreground truncate font-semibold mb-1">
                     {h.username}
                   </div>
-                  <div className="text-sm font-medium text-primary truncate">"{h.hint}"</div>
+                  <div className="text-sm font-medium text-primary break-words whitespace-normal">"{h.hint}"</div>
                 </div>
               ))}
               {hints.length === 0 && (
@@ -988,7 +988,7 @@ const Discussion = () => {
         </div>
 
         {!isSpectator && !myVote && (
-          <div className="absolute bottom-20 right-4 z-30">
+          <div className="absolute bottom-32 right-4 z-30">
             <Button
               onClick={() => setShowVoteModal(true)}
               className="rounded-full h-14 px-6 shadow-xl bg-red-500 hover:bg-red-600 text-white font-bold gap-2"
