@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import {
   Settings,
   HelpCircle,
@@ -8,6 +9,7 @@ import {
   KeyRound,
   Play,
   Info,
+  BookOpen
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +20,7 @@ import "driver.js/dist/driver.css";
 import { useMusic } from "@/contexts/MusicContext";
 import GlobalStats from "@/components/GlobalStats";
 import { generateComicIndianName } from "@/lib/indianNameUtils";
-import { toast } from "sonner"; // Import Sonner Toast
+import { toast } from "sonner";
 
 // Generate a random 6-letter room code
 const generateRoomCode = () => {
@@ -30,7 +32,7 @@ const generateRoomCode = () => {
 };
 
 const ParticleBackground = () => (
-  <div className="absolute inset-0 overflow-hidden pointer-events-none">
+  <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
     <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-primary/10 rounded-full blur-3xl animate-float" />
     <div
       className="absolute top-1/3 right-1/4 w-96 h-96 bg-secondary/10 rounded-full blur-3xl animate-float"
@@ -120,21 +122,19 @@ const Index = () => {
           },
         });
         driverObj.drive();
-      }, 1500); // 1.5s delay matches CSS animation duration
+      }, 1500);
 
       return () => clearTimeout(timer);
     }
   }, []);
 
   const autoJoinRoom = async (code, customName) => {
-    // Prevent duplicate calls
     if (autoJoining) return;
 
     try {
       setAutoJoining(true);
       const upperCode = code.toUpperCase();
 
-      // Check if room exists
       const { data: roomData, error: roomErr } = await supabase
         .from("game_rooms")
         .select("id, room_code, host_id, status")
@@ -155,13 +155,11 @@ const Index = () => {
         return;
       }
 
-      // Use custom name or generate random
       const playerNameToUse =
         customName && customName.trim()
           ? customName.trim()
-          : generateComicIndianName(); // Use comic name
+          : generateComicIndianName();
 
-      // Create profile
       const { data: profile, error: profileErr } = await supabase
         .from("profiles")
         .insert({ username: playerNameToUse })
@@ -176,7 +174,6 @@ const Index = () => {
         return;
       }
 
-      // Add to room
       const { error: joinErr } = await supabase
         .from("room_participants")
         .insert({
@@ -192,13 +189,9 @@ const Index = () => {
         return;
       }
 
-      // Increment Global Stats
       await supabase.rpc("increment_players_joined");
-
-      // Store profile ID in localStorage
       localStorage.setItem(`profile_id_${upperCode}`, profile.id);
 
-      // Navigate to lobby
       navigate(`/lobby/${upperCode}`, {
         state: {
           playerName: playerNameToUse,
@@ -216,7 +209,6 @@ const Index = () => {
 
   const handleNameModalSubmit = () => {
     if (!playerName.trim()) {
-      // Use random name if empty
       autoJoinRoom(autoJoinRoomCode, generateComicIndianName());
     } else {
       autoJoinRoom(autoJoinRoomCode, playerName);
@@ -224,9 +216,7 @@ const Index = () => {
     setShowNameModal(false);
   };
 
-  // Helper to get or create profile
   const getOrCreateProfile = async (username) => {
-    // Simply insert a new profile each time (allows duplicate usernames)
     const { data, error } = await supabase
       .from("profiles")
       .insert({ username })
@@ -237,16 +227,12 @@ const Index = () => {
     return data;
   };
 
-  // Create Room
   const handleCreateRoom = async () => {
     if (!playerName.trim()) return toast.warning("Please enter your name first.");
     try {
       const roomCode = generateRoomCode();
-
-      // 1️⃣ Create / get profile first (used as host_id)
       const profile = await getOrCreateProfile(playerName);
 
-      // 2️⃣ Create room
       const { data: room, error: roomError } = await supabase
         .from("game_rooms")
         .insert({
@@ -259,7 +245,6 @@ const Index = () => {
 
       if (roomError) throw roomError;
 
-      // 3️⃣ Add participant
       const { error: participantError } = await supabase
         .from("room_participants")
         .insert({
@@ -271,13 +256,9 @@ const Index = () => {
 
       if (participantError) throw participantError;
 
-      // Increment Global Stats
       await supabase.rpc("increment_players_joined");
-
-      // Store profileId for host verification
       localStorage.setItem(`profile_id_${roomCode}`, profile.id);
 
-      // ✅ Redirect to lobby
       navigate(`/lobby/${roomCode}`, {
         state: { playerName, isHost: true, roomCode, profileId: profile.id },
       });
@@ -287,7 +268,6 @@ const Index = () => {
     }
   };
 
-  // Join Room
   const handleJoinRoom = async () => {
     if (!playerName.trim()) return toast.warning("Enter your name first.");
     if (!joinCode.trim()) return toast.warning("Enter a valid room code.");
@@ -306,10 +286,8 @@ const Index = () => {
         return;
       }
 
-      // Create / get profile
       const profile = await getOrCreateProfile(playerName);
 
-      // Add participant if not already
       const { error: participantError } = await supabase
         .from("room_participants")
         .insert({
@@ -322,13 +300,9 @@ const Index = () => {
       if (participantError && participantError.code !== "23505")
         throw participantError;
 
-      // Increment Global Stats
       await supabase.rpc("increment_players_joined");
-
-      // Store profileId for later use
       localStorage.setItem(`profile_id_${code}`, profile.id);
 
-      // ✅ Redirect to lobby
       navigate(`/lobby/${code}`, {
         state: {
           playerName,
@@ -343,11 +317,12 @@ const Index = () => {
     }
   };
 
-  // Name modal for shareable link
   if (showNameModal) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 text-white relative overflow-hidden">
-        {/* Background effect */}
+        <Helmet>
+          <title>Join Game - Word Traitor</title>
+        </Helmet>
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-cyan-900/20 via-transparent to-transparent" />
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl"></div>
@@ -355,9 +330,7 @@ const Index = () => {
 
         <div className="relative z-10 flex items-center justify-center min-h-[100dvh] p-4">
           <div className="w-full max-w-lg">
-            {/* Modal Card */}
             <div className="bg-slate-900/80 backdrop-blur-xl rounded-2xl p-6 sm:p-8 border border-cyan-500/20 shadow-2xl shadow-cyan-500/10">
-              {/* Header */}
               <div className="text-center mb-6 sm:mb-8">
                 <div className="inline-flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-cyan-500/20 to-teal-500/20 border border-cyan-500/30 mb-3 sm:mb-4">
                   <Users className="w-6 h-6 sm:w-8 sm:h-8 text-cyan-400" />
@@ -373,7 +346,6 @@ const Index = () => {
                 </p>
               </div>
 
-              {/* Name Input */}
               <div className="space-y-4 sm:space-y-6">
                 <div className="space-y-2">
                   <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
@@ -396,7 +368,6 @@ const Index = () => {
                   </p>
                 </div>
 
-                {/* Buttons */}
                 <div className="space-y-3">
                   <Button
                     onClick={handleNameModalSubmit}
@@ -409,7 +380,6 @@ const Index = () => {
                   </Button>
                 </div>
 
-                {/* Info Badge */}
                 <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-800/30 rounded-lg p-2.5 sm:p-3 border border-slate-700/50">
                   <HelpCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0 text-cyan-400" />
                   <span className="text-xs">
@@ -427,6 +397,9 @@ const Index = () => {
   if (autoJoining) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 text-white flex items-center justify-center p-4">
+        <Helmet>
+          <title>Joining... - Word Traitor</title>
+        </Helmet>
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 sm:h-16 sm:w-16 border-b-2 border-cyan-400 mx-auto mb-4"></div>
           <p className="text-lg sm:text-xl text-slate-300">Joining room...</p>
@@ -435,16 +408,54 @@ const Index = () => {
     );
   }
 
+  const schemaData = {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    "name": "Word Traitor",
+    "description": "A social deduction party game where players must identify the traitor who does not know the secret word.",
+    "genre": ["Social Deduction", "Party Game", "Word Game"],
+    "playMode": "MultiPlayer",
+    "applicationCategory": "Game",
+    "operatingSystem": "Web Browser",
+    "url": "https://wordtraitor.app",
+    "author": {
+      "@type": "Person",
+      "name": "Ayush Tiwari"
+    },
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    }
+  };
+
   return (
     <section className="relative min-h-[100dvh] flex flex-col items-center justify-between px-4 py-6 sm:py-8 gradient-mesh overflow-x-hidden">
+      <Helmet>
+        <title>Word Traitor - Social Deduction Game</title>
+        <meta name="description" content="Play Word Traitor, the ultimate social deduction game. Find the traitor, decipher the word, and survive the discussion." />
+        <link rel="canonical" href="https://wordtraitor.app/" />
+        <script type="application/ld+json">
+          {JSON.stringify(schemaData)}
+        </script>
+      </Helmet>
+
       <ParticleBackground />
 
-      {/* Top icons */}
       <div
         className="absolute top-4 sm:top-6 right-4 sm:right-6 flex items-center gap-2 sm:gap-3 animate-fade-in-up z-20"
         style={{ animationDelay: "0.8s" }}
       >
-        <Link to="/about">
+        <Link to="/how-to-play" aria-label="How to Play">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-primary h-10 w-10 sm:h-10 sm:w-10"
+          >
+            <BookOpen className="w-5 h-5 sm:w-5 sm:h-5" />
+          </Button>
+        </Link>
+        <Link to="/about" aria-label="About Word Traitor">
           <Button
             variant="ghost"
             size="icon"
@@ -455,9 +466,7 @@ const Index = () => {
         </Link>
       </div>
 
-      {/* Main Content Centered */}
       <div className="flex-1 flex flex-col items-center justify-center w-full z-10 max-w-xl">
-        {/* Title */}
         <h1 className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-heading font-extrabold tracking-tight animate-fade-in-up text-center mt-8 sm:mt-0">
           <span className="text-primary text-glow-cyan">Word</span>
           <span className="text-secondary text-glow-purple">Traitor</span>
@@ -470,7 +479,6 @@ const Index = () => {
           One word apart. One traitor among you.
         </p>
 
-        {/* Player name input */}
         <div
           className="flex flex-col sm:flex-row gap-3 w-full justify-center items-center animate-fade-in-up px-4"
           style={{ animationDelay: "0.4s" }}
@@ -481,48 +489,48 @@ const Index = () => {
             onChange={(e) => setPlayerName(e.target.value)}
             className="w-full max-w-xs bg-card/40 border border-border/50 focus:border-primary placeholder:text-muted-foreground/70 h-11 sm:h-11 text-base"
             maxLength={20}
+            aria-label="Player Display Name"
           />
         </div>
 
-        {/* Room actions */}
         <div
           className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 mt-6 sm:mt-12 animate-fade-in-up w-full max-w-2xl px-4"
           style={{ animationDelay: "0.6s" }}
         >
-          {/* Create Room */}
           <button
             id="create-room-btn"
             onClick={handleCreateRoom}
             className={cn(
               "group relative p-5 sm:p-8 rounded-2xl border-2 bg-card/40 border-primary/30 hover:border-primary hover:bg-primary/10 transition-all duration-300 backdrop-blur-md overflow-hidden min-h-[120px] sm:min-h-[180px]"
             )}
+            aria-label="Create a new game room"
           >
             <div className="absolute inset-0 bg-gradient-to-br from-primary/20 to-secondary/20 opacity-0 group-hover:opacity-100 blur-2xl transition-all" />
             <div className="relative flex flex-col items-center text-center gap-2 sm:gap-4">
               <PlusCircle className="w-8 h-8 sm:w-10 sm:h-10 text-primary group-hover:scale-110 transition-transform" />
-              <h3 className="font-heading text-lg sm:text-xl font-semibold text-primary">
+              <h2 className="font-heading text-lg sm:text-xl font-semibold text-primary">
                 Create Room
-              </h3>
+              </h2>
               <p className="text-sm text-muted-foreground max-w-[200px]">
                 Start a new circle and invite friends.
               </p>
             </div>
           </button>
 
-          {/* Join Room */}
           <button
             id="join-room-btn"
             onClick={() => setJoining(true)}
             className={cn(
               "group relative p-5 sm:p-8 rounded-2xl border-2 bg-card/40 border-secondary/30 hover:border-secondary hover:bg-secondary/10 transition-all duration-300 backdrop-blur-md overflow-hidden min-h-[120px] sm:min-h-[180px]"
             )}
+            aria-label="Join an existing game room"
           >
             <div className="absolute inset-0 bg-gradient-to-br from-secondary/20 to-primary/20 opacity-0 group-hover:opacity-100 blur-2xl transition-all" />
             <div className="relative flex flex-col items-center text-center gap-2 sm:gap-4">
               <Users className="w-8 h-8 sm:w-10 sm:h-10 text-secondary group-hover:scale-110 transition-transform" />
-              <h3 className="font-heading text-lg sm:text-xl font-semibold text-secondary">
+              <h2 className="font-heading text-lg sm:text-xl font-semibold text-secondary">
                 Join Room
-              </h3>
+              </h2>
               <p className="text-sm text-muted-foreground max-w-[200px]">
                 Enter a room code to join your friends.
               </p>
@@ -531,10 +539,7 @@ const Index = () => {
         </div>
       </div>
 
-      {/* Global Stats + Footer Area */}
       <div className="w-full flex flex-col items-center gap-6 z-10 animate-fade-in-up mt-8">
-        
-        {/* Stats */}
         <div
           className="opacity-75 hover:opacity-100 transition-opacity"
           style={{ animationDelay: "0.9s" }}
@@ -542,32 +547,35 @@ const Index = () => {
           <GlobalStats />
         </div>
 
-        {/* Footer */}
-        <div
+        <nav
           className="flex flex-wrap justify-center gap-x-4 gap-y-2 text-xs text-muted-foreground px-4 text-center"
           style={{ animationDelay: "1s" }}
+          aria-label="Footer navigation"
         >
+          <Link to="/how-to-play" className="hover:text-primary transition-colors py-2">
+            How to Play
+          </Link>
+          <span className="text-muted-foreground/30 hidden sm:inline py-2" aria-hidden="true">•</span>
           <Link to="/terms" className="hover:text-primary transition-colors py-2">
             Terms of Service
           </Link>
-          <span className="text-muted-foreground/30 hidden sm:inline py-2">•</span>
+          <span className="text-muted-foreground/30 hidden sm:inline py-2" aria-hidden="true">•</span>
           <Link to="/privacy" className="hover:text-primary transition-colors py-2">
             Privacy Policy
           </Link>
-          <span className="text-muted-foreground/30 hidden sm:inline py-2">•</span>
+          <span className="text-muted-foreground/30 hidden sm:inline py-2" aria-hidden="true">•</span>
           <Link to="/about" className="hover:text-primary transition-colors py-2">
             About
           </Link>
-        </div>
+        </nav>
       </div>
 
-      {/* Join Room Modal */}
       {joining && (
         <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in-up p-4">
           <div className="p-6 sm:p-8 bg-card/70 border border-border/50 rounded-2xl shadow-lg max-w-sm w-full text-center">
-            <h3 className="font-heading text-lg sm:text-xl mb-4 flex items-center justify-center gap-2">
+            <h2 className="font-heading text-lg sm:text-xl mb-4 flex items-center justify-center gap-2">
               <KeyRound className="w-4 h-4 sm:w-5 sm:h-5 text-primary" /> Enter Room Code
-            </h3>
+            </h2>
             <Input
               placeholder="e.g. A1B2C3"
               value={joinCode}
@@ -578,6 +586,7 @@ const Index = () => {
               className="mb-4 text-center uppercase h-11 sm:h-11 text-base"
               maxLength={6}
               autoFocus
+              aria-label="Room Code Input"
             />
             <div className="flex gap-3 justify-center">
               <Button variant="neonCyan" onClick={handleJoinRoom} className="text-base px-6">

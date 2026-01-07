@@ -1,0 +1,21 @@
+{
+  "name": "Word Traitor",
+  "short_name": "Word Traitor",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/Header.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/Logo.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}

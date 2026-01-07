@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import {
   ArrowLeft,
   Copy,
@@ -375,6 +376,11 @@ const Lobby = () => {
 
   return (
     <div className={cn("min-h-screen bg-background gradient-mesh pb-24 lg:pb-8")}>
+      <Helmet>
+        <title>Lobby - Word Traitor</title>
+        <meta name="robots" content="noindex" />
+      </Helmet>
+      
       <div className="container max-w-5xl mx-auto px-4 py-6 sm:py-8">
         {/* Header - Mobile Optimized */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8 animate-fade-in-up">
