@@ -1,1 +1,7 @@
+# Static files should be served as-is
+/sitemap.xml /sitemap.xml 200
+/robots.txt /robots.txt 200
+/manifest.json /manifest.json 200
+
+# SPA fallback - all other requests go to index.html
 /*    /index.html   200
