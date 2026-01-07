@@ -17,6 +17,7 @@ import NotFound from "./pages/NotFound";
 import About from "./pages/About";
 import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
+import HowToPlay from "./pages/HowToPlay";
 import FeedbackWidget from "@/components/FeedbackWidget";
 import MusicPlayerWidget from "@/components/MusicPlayerWidget";
 import { MusicProvider } from "@/contexts/MusicContext";
@@ -47,6 +48,7 @@ const App = () => (
               <Route path="/about" element={<About />} />
               <Route path="/terms" element={<Terms />} />
               <Route path="/privacy" element={<Privacy />} />
+              <Route path="/how-to-play" element={<HowToPlay />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
             <FeedbackWidget />
