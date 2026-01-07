@@ -10,10 +10,10 @@ const corsHeaders = {
 // 🛡️ FALLBACK WORDS
 // Ensures game starts even if database 'word_pairs' table is empty or fails.
 const FALLBACK_WORDS = [
-  { civilian_word: "Sun", traitor_word: "Moon", difficulty: "easy" },
-  { civilian_word: "Coffee", traitor_word: "Tea", difficulty: "medium" },
-  { civilian_word: "Beach", traitor_word: "Desert", difficulty: "medium" },
-  { civilian_word: "Car", traitor_word: "Truck", difficulty: "easy" },
+  { civilian_word: "Sun", traitor_word: "Moon", category: "easy" },
+  { civilian_word: "Coffee", traitor_word: "Tea", category: "medium" },
+  { civilian_word: "Beach", traitor_word: "Desert", category: "medium" },
+  { civilian_word: "Car", traitor_word: "Truck", category: "easy" },
 ];
 
 serve(async (req) => {
@@ -79,56 +79,61 @@ serve(async (req) => {
       // Ideally we enforce 2+ players, but for testing we allow it
     }
 
-    // 3. Select Word Pair (Strict Adult Filtering)
+    // 3. Select Word Pair with Cooldown System
     let selectedPair = null;
 
     try {
-      // Logic for adult filtering vs difficulty
-      // settings.adultWords (boolean)
-      // settings.wordLevel (string: "easy", "medium", "hard")
-
-      let query = supabase.from("word_pairs").select("*", { count: "exact", head: true });
-
       const isAdult = settings?.adultWords === true;
       const difficulty = settings?.wordLevel || "medium";
+      
+      // ⏰ 10-hour cooldown timestamp
+      const tenHoursAgo = new Date(Date.now() - 10 * 60 * 60 * 1000).toISOString();
+
+      // 🎯 STRATEGY: Try to get a word NOT used in last 10 hours
+      let query = supabase
+        .from("word_pairs")
+        .select("id, civilian_word, traitor_word, category, last_used_at", { count: "exact", head: true });
+
+      // Apply cooldown filter (words not used in last 10 hours OR never used)
+      query = query.or(`last_used_at.is.null,last_used_at.lt.${tenHoursAgo}`);
 
       // 🔞 Adult vs Normal Logic
       if (isAdult) {
-         // MUST contain 'adult' or '18plus' in category
-         // We use .or() to find matches. Note that this might require exact string matching depending on your DB data.
-         // Assuming 'category' is a text column:
-         query = query.or("category.ilike.%18plus%,category.ilike.%adult%");
+        query = query.or("category.ilike.%18plus%,category.ilike.%adult%");
       } else {
-         // MUST NOT be adult
-         query = query
-           .not("category", "ilike", "%18plus%")
-           .not("category", "ilike", "%adult%");
-         
-         // Only apply difficulty filter for non-adult words (optional, but good for variety)
-         if (difficulty) {
-           query = query.ilike("category", `%${difficulty}%`);
-         }
+        query = query
+          .not("category", "ilike", "%18plus%")
+          .not("category", "ilike", "%adult%");
+        
+        if (difficulty) {
+          query = query.ilike("category", `%${difficulty}%`);
+        }
       }
 
-      // 1️⃣ Count rows
+      // 1️⃣ Count available "fresh" words
       const { count, error: countErr } = await query;
 
       if (!countErr && count && count > 0) {
+        // We have fresh words available!
         const randomOffset = Math.floor(Math.random() * count);
 
-        // 2️⃣ Fetch exactly one random row using the SAME filters
-        let dataQuery = supabase.from("word_pairs").select("civilian_word, traitor_word");
+        // 2️⃣ Fetch one random fresh word
+        let dataQuery = supabase
+          .from("word_pairs")
+          .select("id, civilian_word, traitor_word, category, last_used_at");
         
-        // Re-apply filters for the data fetch
+        // Re-apply all filters
+        dataQuery = dataQuery.or(`last_used_at.is.null,last_used_at.lt.${tenHoursAgo}`);
+        
         if (isAdult) {
-            dataQuery = dataQuery.or("category.ilike.%18plus%,category.ilike.%adult%");
+          dataQuery = dataQuery.or("category.ilike.%18plus%,category.ilike.%adult%");
         } else {
-            dataQuery = dataQuery
-              .not("category", "ilike", "%18plus%")
-              .not("category", "ilike", "%adult%");
-            if (difficulty) {
-              dataQuery = dataQuery.ilike("category", `%${difficulty}%`);
-            }
+          dataQuery = dataQuery
+            .not("category", "ilike", "%18plus%")
+            .not("category", "ilike", "%adult%");
+          if (difficulty) {
+            dataQuery = dataQuery.ilike("category", `%${difficulty}%`);
+          }
         }
 
         const { data, error } = await dataQuery
@@ -137,44 +142,94 @@ serve(async (req) => {
 
         if (!error && data) {
           selectedPair = data;
-        } else {
-          console.warn("⚠️ Random DB row fetch returned no data.");
+          console.log("✅ Selected fresh word (not used in 10h):", data.id);
         }
       } else {
-         // Retry logic: If specific difficulty failed (and not adult mode), try ANY difficulty (non-adult)
-         if (!isAdult && difficulty) {
-             console.log("⚠️ No words found for specific difficulty, trying any non-adult word...");
-             let retryQuery = supabase
-                .from("word_pairs")
-                .select("*")
-                .not("category", "ilike", "%18plus%")
-                .not("category", "ilike", "%adult%")
-                .limit(1);
-             
-             // Get a random one? (Hard to do efficient random without count, but let's try a small fetch)
-             // For simplicity in retry, just fetch one to keep game going.
-             const { data: retryData } = await retryQuery.maybeSingle();
-             if (retryData) selectedPair = retryData;
-         }
+        // ⚠️ NO fresh words available - FALLBACK to least recently used
+        console.warn("⚠️ All words in cooldown, selecting least recently used...");
+        
+        let fallbackQuery = supabase
+          .from("word_pairs")
+          .select("id, civilian_word, traitor_word, category, last_used_at")
+          .order("last_used_at", { ascending: true, nullsFirst: false });
+
+        // Apply category filters (adult/normal + difficulty)
+        if (isAdult) {
+          fallbackQuery = fallbackQuery.or("category.ilike.%18plus%,category.ilike.%adult%");
+        } else {
+          fallbackQuery = fallbackQuery
+            .not("category", "ilike", "%18plus%")
+            .not("category", "ilike", "%adult%");
+          if (difficulty) {
+            fallbackQuery = fallbackQuery.ilike("category", `%${difficulty}%`);
+          }
+        }
+
+        const { data: fallbackData } = await fallbackQuery.limit(1).maybeSingle();
+        
+        if (fallbackData) {
+          selectedPair = fallbackData;
+          console.log("⏰ Using least recently used word:", fallbackData.id);
+        }
+      }
+
+      // 🔄 RETRY: If specific difficulty failed (non-adult only), try ANY difficulty
+      if (!selectedPair && !isAdult && difficulty) {
+        console.log("⚠️ No words for specific difficulty, trying any non-adult word...");
+        
+        let retryQuery = supabase
+          .from("word_pairs")
+          .select("id, civilian_word, traitor_word, category, last_used_at")
+          .not("category", "ilike", "%18plus%")
+          .not("category", "ilike", "%adult%")
+          .or(`last_used_at.is.null,last_used_at.lt.${tenHoursAgo}`)
+          .limit(1);
+        
+        const { data: retryData } = await retryQuery.maybeSingle();
+        
+        if (retryData) {
+          selectedPair = retryData;
+        } else {
+          // Still nothing? Get ANY non-adult word (ignore cooldown)
+          const { data: anyData } = await supabase
+            .from("word_pairs")
+            .select("id, civilian_word, traitor_word, category, last_used_at")
+            .not("category", "ilike", "%18plus%")
+            .not("category", "ilike", "%adult%")
+            .order("last_used_at", { ascending: true, nullsFirst: false })
+            .limit(1)
+            .maybeSingle();
+          
+          if (anyData) selectedPair = anyData;
+        }
       }
     } catch (e) {
-      console.error("❌ Error fetching random word from DB:", e);
+      console.error("❌ Error fetching word from DB:", e);
     }
 
-    // Use Fallback if DB failed or empty
+    // 🛡️ Use FALLBACK_WORDS if DB completely failed
     if (!selectedPair) {
-      console.warn("⚠️ Using fallback words.");
+      console.warn("⚠️ Using hardcoded fallback words.");
       const difficulty = settings?.wordLevel || "medium";
       const filteredFallback = FALLBACK_WORDS.filter(
-        (w) => w.difficulty === difficulty
+        (w) => w.category === difficulty
       );
-      const pool =
-        filteredFallback.length > 0 ? filteredFallback : FALLBACK_WORDS;
+      const pool = filteredFallback.length > 0 ? filteredFallback : FALLBACK_WORDS;
       selectedPair = pool[Math.floor(Math.random() * pool.length)];
     }
 
     const civilianWord = selectedPair.civilian_word;
     const traitorWord = selectedPair.traitor_word;
+
+    // 🔄 UPDATE last_used_at for the selected word (if it has an ID from DB)
+    if (selectedPair.id) {
+      await supabase
+        .from("word_pairs")
+        .update({ last_used_at: new Date().toISOString() })
+        .eq("id", selectedPair.id);
+      
+      console.log(`📝 Updated last_used_at for word ID: ${selectedPair.id}`);
+    }
 
     // 4. Assign Roles
     const numTraitors = Math.max(
@@ -185,11 +240,7 @@ serve(async (req) => {
     const traitorIds = shuffled.slice(0, numTraitors).map((p) => p.user_id);
 
     // 5. Create Secrets
-    // ✅ FIX: Increment round number properly based on previous room state
     const roundNumber = (room.current_round || 0) + 1;
-    
-    // Clear old secrets for this room (optional cleanup)
-    // await supabase.from("round_secrets").delete().eq("room_id", roomId);
 
     const secrets = participants.map((p) => ({
       room_id: roomId,
@@ -207,32 +258,32 @@ serve(async (req) => {
       throw new Error("Failed to assign words");
     }
 
-    // 6. Update Participant Roles (CRITICAL: DO THIS BEFORE UPDATING ROOM STATUS)
+    // 6. Update Participant Roles
     for (const p of participants) {
       await supabase
         .from("room_participants")
         .update({
           role: traitorIds.includes(p.user_id) ? "traitor" : "civilian",
-          is_alive: true, // Revive everyone for new round
+          is_alive: true,
         })
         .eq("room_id", roomId)
         .eq("user_id", p.user_id);
     }
     
-    // Clear old votes/hints/chat for the new round
+    // Clear old game data
     await supabase.from("game_votes").delete().eq("room_id", roomId);
     await supabase.from("game_hints").delete().eq("room_id", roomId);
     await supabase.from("chat_messages").delete().eq("room_id", roomId);
 
-    // 7. Update Room Status & Settings (Triggers Client Navigation)
+    // 7. Update Room Status & Settings
     await supabase
       .from("game_rooms")
       .update({
         current_round: roundNumber,
         status: "playing",
         settings: {
-          ...room.settings, // Keep old settings
-          ...settings, // Overwrite with new ones (including adultWords if passed)
+          ...room.settings,
+          ...settings,
           hint_baseline: 0,
         },
       })
