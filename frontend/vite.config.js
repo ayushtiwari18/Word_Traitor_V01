@@ -9,7 +9,7 @@ export default defineConfig({
     tsconfigPaths(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.ico", "apple-touch-icon.png", "mask-icon.svg"],
+      includeAssets: ["favicon.ico", "apple-touch-icon.png", "mask-icon.svg", "robots.txt", "sitemap.xml"],
       manifest: {
         name: "Word Traitor - Social Deduction Game",
         short_name: "Word Traitor",
@@ -38,8 +38,8 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
-        maximumFileSizeToCacheInBytes: 3000000 // Increase limit for large assets if any
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2,xml,txt}"],
+        maximumFileSizeToCacheInBytes: 3000000
       }
     })
   ],
