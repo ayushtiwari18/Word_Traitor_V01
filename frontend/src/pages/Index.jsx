@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import {
   Settings,
   HelpCircle,
@@ -318,6 +319,9 @@ const Index = () => {
   if (showNameModal) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 text-white relative overflow-hidden">
+        <Helmet>
+          <title>Join Game - Word Traitor</title>
+        </Helmet>
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-cyan-900/20 via-transparent to-transparent" />
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl"></div>
@@ -392,6 +396,9 @@ const Index = () => {
   if (autoJoining) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 text-white flex items-center justify-center p-4">
+        <Helmet>
+          <title>Joining... - Word Traitor</title>
+        </Helmet>
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 sm:h-16 sm:w-16 border-b-2 border-cyan-400 mx-auto mb-4"></div>
           <p className="text-lg sm:text-xl text-slate-300">Joining room...</p>
@@ -402,6 +409,12 @@ const Index = () => {
 
   return (
     <section className="relative min-h-[100dvh] flex flex-col items-center justify-between px-4 py-6 sm:py-8 gradient-mesh overflow-x-hidden">
+      <Helmet>
+        <title>Word Traitor - Social Deduction Game</title>
+        <meta name="description" content="Play Word Traitor, the ultimate social deduction game. Find the traitor, decipher the word, and survive the discussion." />
+        <link rel="canonical" href="https://wordtraitor.app/" />
+      </Helmet>
+
       <ParticleBackground />
 
       <div
