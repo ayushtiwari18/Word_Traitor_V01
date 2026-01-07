@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import { ArrowLeft, Github, Linkedin, Code2, Users, HelpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +35,11 @@ const developers = [
 const About = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 text-white p-6 md:p-12">
+      <Helmet>
+        <title>About Us - Word Traitor</title>
+        <meta name="description" content="Meet the developers behind Word Traitor and learn about the game's mission." />
+      </Helmet>
+      
       <div className="max-w-4xl mx-auto space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
         
         {/* Header */}
