@@ -9,6 +9,7 @@ import {
   KeyRound,
   Play,
   Info,
+  BookOpen
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -407,12 +408,36 @@ const Index = () => {
     );
   }
 
+  const schemaData = {
+    "@context": "https://schema.org",
+    "@type": "VideoGame",
+    "name": "Word Traitor",
+    "description": "A social deduction party game where players must identify the traitor who does not know the secret word.",
+    "genre": ["Social Deduction", "Party Game", "Word Game"],
+    "playMode": "MultiPlayer",
+    "applicationCategory": "Game",
+    "operatingSystem": "Web Browser",
+    "url": "https://wordtraitor.app",
+    "author": {
+      "@type": "Person",
+      "name": "Ayush Tiwari"
+    },
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    }
+  };
+
   return (
     <section className="relative min-h-[100dvh] flex flex-col items-center justify-between px-4 py-6 sm:py-8 gradient-mesh overflow-x-hidden">
       <Helmet>
         <title>Word Traitor - Social Deduction Game</title>
         <meta name="description" content="Play Word Traitor, the ultimate social deduction game. Find the traitor, decipher the word, and survive the discussion." />
         <link rel="canonical" href="https://wordtraitor.app/" />
+        <script type="application/ld+json">
+          {JSON.stringify(schemaData)}
+        </script>
       </Helmet>
 
       <ParticleBackground />
@@ -421,6 +446,15 @@ const Index = () => {
         className="absolute top-4 sm:top-6 right-4 sm:right-6 flex items-center gap-2 sm:gap-3 animate-fade-in-up z-20"
         style={{ animationDelay: "0.8s" }}
       >
+        <Link to="/how-to-play" aria-label="How to Play">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-primary h-10 w-10 sm:h-10 sm:w-10"
+          >
+            <BookOpen className="w-5 h-5 sm:w-5 sm:h-5" />
+          </Button>
+        </Link>
         <Link to="/about" aria-label="About Word Traitor">
           <Button
             variant="ghost"
@@ -518,6 +552,10 @@ const Index = () => {
           style={{ animationDelay: "1s" }}
           aria-label="Footer navigation"
         >
+          <Link to="/how-to-play" className="hover:text-primary transition-colors py-2">
+            How to Play
+          </Link>
+          <span className="text-muted-foreground/30 hidden sm:inline py-2" aria-hidden="true">•</span>
           <Link to="/terms" className="hover:text-primary transition-colors py-2">
             Terms of Service
           </Link>
