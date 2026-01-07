@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import { ArrowLeft, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -6,6 +7,12 @@ import { Card, CardContent } from "@/components/ui/card";
 const Terms = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 text-white p-6 md:p-12">
+      <Helmet>
+        <title>Terms of Service - Word Traitor</title>
+        <meta name="description" content="Read the Terms of Service for Word Traitor. Understand the rules and guidelines for playing." />
+        <meta name="robots" content="noindex" />
+      </Helmet>
+
       <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
         
         {/* Header */}
