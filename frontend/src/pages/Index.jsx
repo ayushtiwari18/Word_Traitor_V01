@@ -417,7 +417,7 @@ const Index = () => {
     "playMode": "MultiPlayer",
     "applicationCategory": "Game",
     "operatingSystem": "Web Browser",
-    "url": "https://wordtraitor.app",
+    "url": "https://wordtraitor.netlify.app",
     "author": {
       "@type": "Person",
       "name": "Ayush Tiwari"
@@ -434,7 +434,7 @@ const Index = () => {
       <Helmet>
         <title>Word Traitor - Social Deduction Game</title>
         <meta name="description" content="Play Word Traitor, the ultimate social deduction game. Find the traitor, decipher the word, and survive the discussion." />
-        <link rel="canonical" href="https://wordtraitor.app/" />
+        <link rel="canonical" href="https://wordtraitor.netlify.app/" />
         <script type="application/ld+json">
           {JSON.stringify(schemaData)}
         </script>
